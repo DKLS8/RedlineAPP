@@ -1,0 +1,593 @@
+{
+  "name": "Redline Recruiter ICP Cleaner",
+  "nodes": [
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "select": "user",
+        "sheetName": {
+          "__rl": true,
+          "value": "Process and Upload Main",
+          "mode": "name"
+        },
+        "documentId": {
+          "__rl": true,
+          "value": "176d3pUIzMeVIRYZK6nosZosmGtFMLDDcQG2wTZsjhrc",
+          "mode": "id"
+        },
+        "options": {
+          "rangeDefinition": "specifyRangeA1",
+          "range": "A:CZ"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "column": "AG",
+              "condition": "empty"
+            },
+            {
+              "column": "D",
+              "condition": "notEmpty"
+            },
+            {
+              "column": "I",
+              "condition": "notEmpty"
+            },
+            {
+              "column": "W",
+              "condition": "empty"
+            }
+          ],
+          "combineOperation": "AND"
+        }
+      },
+      "id": "google-sheets-filter",
+      "name": "Filter Google Sheets Rows",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        300
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YOUR_GOOGLE_CREDENTIALS_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://api.exa.ai/contents",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "exaApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $credentials.apiKey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "ids",
+              "value": "={{ [$json['company website (I)']] }}"
+            },
+            {
+              "name": "text",
+              "value": "={{ { includeHtmlTags: false } }}"
+            },
+            {
+              "name": "limit",
+              "value": "10"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "exa-ai-content",
+      "name": "Exa AI - Get Website Content",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o-mini",
+        "options": {
+          "temperature": 0,
+          "maxTokens": 1080,
+          "topP": 1,
+          "responseFormat": "json_object"
+        },
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are a deterministic recruitment intelligence classifier.\n\nYour job:\n1) Determine if this entity is a third-party recruiter-for-hire (someone who helps external companies find and hire candidates for a fee or commission).\n2) If they ARE a recruiter-for-hire, ALSO determine if this person is a decision-maker (someone who has authority to talk about / purchase lead generation services).\n\nDecision-maker definition:\nSomeone who likely has authority in the business to evaluate or approve spending on lead generation services (e.g., founders, owners, partners, CEOs, managing directors, principals, sales leadership, business managers, operations managers, or recruiters wearing multiple hats at very small firms ≤10 employees).\n\nOutput format rules:\n\nIf NOT recruiter-for-hire:\n- is_middleman = false\n- is_decision_maker = false\n- reasoning (1-2 sentences)\n\nIf recruiter-for-hire but NOT decision-maker:\n- is_middleman = true\n- is_decision_maker = false\n- reasoning (1-2 sentences)\n\nIf recruiter-for-hire AND decision-maker:\n- is_middleman = true\n- is_decision_maker = true\n- recruitment_niche (be SPECIFIC - describe the MARKET SEGMENT or INDUSTRY they recruit in, NOT the service type)\n- ideal_client_profile (2-3 words max - be SPECIFIC to their actual target clients)\n- reasoning (1-2 sentences)\n\nReturn exactly ONE JSON object. No commentary outside JSON."
+            },
+            {
+              "role": "user",
+              "content": "## **USER PROMPT:**\n```\nYou are analyzing recruiter intelligence from the following data:\n\nCompany name: {{ $('Filter Google Sheets Rows').item.json['company name (H)'] }}\nCompany website text: {{ $('Exa AI - Get Website Content').item.json.text }}\nCompany employee count: {{ $('Filter Google Sheets Rows').item.json['num employees (AL)'] }}\nName: {{ $('Filter Google Sheets Rows').item.json['name (A)'] }}\nJob title: {{ $('Filter Google Sheets Rows').item.json['title (F)'] }}\nHeadline: {{ $('Filter Google Sheets Rows').item.json['headline (G)'] }}\n\n\nGOAL\n1) Determine if this entity is a recruiter-for-hire (third-party recruiter that connects candidates with client companies for payment).\n2) If they ARE a recruiter-for-hire, determine if this person is a decision-maker (has authority to talk about hiring lead generation services).\n\n\nCLASSIFICATION RULES – IS MIDDLEMAN (THIRD-PARTY RECRUITER)\n✅ Set \"is_middleman\": true IF:\n- Mentions serving clients, employers, or hiring companies\n- Describes themselves as: \"recruiting firm\", \"staffing agency\", \"executive search\", \"headhunter\", \"RPO\", \"contingent search\", \"retained search\"\n- Offers services to help companies hire or fill positions\n- Describes sourcing, screening, or placing candidates for external organizations\n- Mentions client case studies, client industries, or client success stories\n- Provides \"fractional HR\" or \"outsourced HR\" that includes recruitment services for multiple clients\n\n❌ Set \"is_middleman\": false IF:\n- Works in HR, talent acquisition, or internal recruiting for a single company\n- Says \"we're hiring\", \"join our team\", \"careers at [company]\" or lists their own open roles\n- Is a coach, resume writer, job board, ATS vendor, or career platform\n- Provides virtual assistant services, consulting, or other non-recruiting services\n- Provides ONLY HR consulting/compliance/training without recruiting services\n- No explicit evidence of recruiting for other companies\n\n\nIF \"is_middleman\": false → Return:\n{\n  \"is_middleman\": false,\n  \"is_decision_maker\": false,\n  \"reasoning\": \"string explaining what they actually do\"\n}\n\n\nIF \"is_middleman\": true → extract niche + ICP + determine decision-maker:\n\n\nRECRUITMENT NICHE EXTRACTION (BE SPECIFIC)\n⚠️ CRITICAL: \"recruitment_niche\" describes WHO THEY RECRUIT FOR (the market segment/industry), NOT what services they offer.\n\nWRONG EXAMPLES:\n❌ \"human resources consulting\" (this is a service type, not a market)\n❌ \"executive search\" (this is a service type, not a market)\n❌ \"HR solutions\" (this is a service type, not a market)\n❌ \"staffing services\" (this is a service type, not a market)\n\nRIGHT EXAMPLES:\n✅ \"tech recruiting\" (describes the industry)\n✅ \"healthcare recruiting\" (describes the industry)\n✅ \"construction recruiting\" (describes the industry)\n✅ \"electrical industry recruiting\" (describes specific industry vertical)\n\nANALYSIS PRIORITY ORDER:\n\n1️⃣ FIRST: Look for explicit INDUSTRY statements:\n- \"specializing in X industry\" or \"recruiting for X sector\"\n- \"markets we serve\", \"industries\", \"verticals\", \"specializations\"\n- \"we focus on [industry]\", \"serving the [industry] sector\"\n→ Use format: \"[industry] recruiting\" (e.g., \"electrical industry recruiting\", \"healthcare recruiting\")\n\n2️⃣ SECOND: Infer from role types they recruit:\n- \"electrical engineers\", \"power systems\", \"linemen\" → \"electrical industry recruiting\"\n- \"nurses\", \"physicians\", \"healthcare professionals\" → \"healthcare recruiting\"\n- \"software engineers\", \"developers\", \"data scientists\" → \"tech recruiting\"\n- \"accountants\", \"CFOs\", \"financial analysts\" → \"finance recruiting\"\n- \"superintendents\", \"project managers\", \"estimators\" → \"construction recruiting\"\n\n3️⃣ LAST RESORT: Use broad category fallback:\n- If multiple industries or no specific industry mentioned → \"professional recruiting\"\n- If only C-suite/executive focus mentioned → \"executive recruiting\"\n\nSPECIFIC INDUSTRY EXAMPLES:\n- Electrical/power/utilities/lighting → \"electrical industry recruiting\"\n- Oil/gas/energy/renewable → \"energy recruiting\"\n- Life sciences/biotech/pharma → \"life sciences recruiting\"\n- Aerospace/aviation/defense → \"aerospace recruiting\"\n- Real estate/property management → \"real estate recruiting\"\n- Food/beverage/CPG/consumer goods → \"consumer goods recruiting\"\n- Software/SaaS/developer/tech/IT → \"tech recruiting\"\n- Accounting/finance/CFO/CPA → \"finance recruiting\"\n- Hospital/nurse/medical/healthcare → \"healthcare recruiting\"\n- Construction/trades/superintendent → \"construction recruiting\"\n- Manufacturing/logistics/supply chain → \"industrial recruiting\"\n- Legal/attorney/law firm → \"legal recruiting\"\n\nFALLBACK (only if no specific industry found):\n- Multiple industries or no clear focus → \"professional recruiting\"\n- Only C-suite mentioned → \"executive recruiting\"\n\n\nIDEAL CLIENT PROFILE (ICP) LOGIC\n⚠️ CRITICAL: Must sound NATURAL when inserted into: \"are you looking for more [ICP] to work with?\"\n\nExtract 2-3 words that describe their TARGET CLIENT COMPANIES.\n\nPRIORITY ORDER:\n\n1️⃣ FIRST: Use specific company types mentioned explicitly:\n- \"electrical distributors\" → \"electrical distributors\"\n- \"lighting manufacturers\" → \"lighting manufacturers\"\n- \"general contractors\" → \"general contractors\"\n- \"subcontractors\" → \"subcontractors\"\n- \"health systems\" → \"health systems\"\n- \"hospitals\" → \"hospitals\"\n- \"law firms\" → \"law firms\"\n- \"accounting firms\" → \"accounting firms\"\n- \"construction firms\" → \"construction firms\"\n\n2️⃣ SECOND: Use industry + company type based on their niche:\n- electrical industry recruiting → \"electrical companies\" or \"utility companies\"\n- energy recruiting → \"energy companies\"\n- tech recruiting → \"tech companies\" or \"SaaS companies\"\n- finance recruiting → \"financial firms\"\n- healthcare recruiting → \"healthcare providers\" or \"medical practices\"\n- construction recruiting → \"construction firms\" or \"contractors\"\n- legal recruiting → \"law firms\"\n- industrial recruiting → \"manufacturers\"\n- real estate recruiting → \"property firms\"\n\n3️⃣ LAST RESORT: Generic but natural-sounding fallback:\n- \"growing companies\"\n- \"companies hiring\"\n\nTEST YOUR ICP: Ask \"Does this sound natural?\" \n✅ \"are you looking for more **electrical distributors** to work with?\" → YES\n✅ \"are you looking for more **tech companies** to work with?\" → YES\n✅ \"are you looking for more **healthcare providers** to work with?\" → YES\n✅ \"are you looking for more **general contractors** to work with?\" → YES\n❌ \"are you looking for more **small businesses** to work with?\" → AVOID\n❌ \"are you looking for more **clients** to work with?\" → TOO GENERIC\n\n\nDECISION-MAKER LOGIC\nSet \"is_decision_maker\": true IF title or role indicates authority:\n\nHIGH AUTHORITY (always decision-maker):\n- Owner / Founder / Co-Founder / Partner / Principal / Managing Partner\n- CEO / President / Chief Executive / Managing Director / Executive Director\n- VP of Sales / Sales Director / Director of Business Development / Head of Sales / CRO\n- VP / Director of Operations / COO\n\nMODERATE AUTHORITY (decision-maker at small firms):\n- Company ≤10 employees AND title contains: Business Manager, Operations Manager, Office Manager, Manager\n- Company ≤10 employees AND title contains: Senior Recruiter, Lead Recruiter, Principal Recruiter, Recruiting Manager\n- Company ≤5 employees AND title is: Recruiter\n\nSet \"is_decision_maker\": false otherwise.\n\n\nOUTPUT FORMAT\nReturn ONLY ONE JSON object containing:\n\nAlways include:\n- \"is_middleman\": true/false\n- \"is_decision_maker\": true/false\n\nIF is_middleman = true AND is_decision_maker = true, ALSO include:\n- \"recruitment_niche\": \"specific industry recruiting\" (describes the INDUSTRY/SECTOR they recruit for, NOT the service type)\n- \"ideal_client_profile\": \"specific client type\" (2-3 words that sound natural after \"more ___ to work with\")\n- \"reasoning\": \"1-2 sentence explanation\"\n\nReturn ONLY the JSON object. No commentary before or after."
+            }
+          ]
+        }
+      },
+      "id": "openai-icp-classifier",
+      "name": "QC ICP Fit - Redline Recruiters",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1,
+      "position": [
+        680,
+        300
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "YOUR_OPENAI_CREDENTIALS_ID",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition1",
+              "leftValue": "={{ $json.is_middleman }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "condition2",
+              "leftValue": "={{ $json.is_decision_maker }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-true-fit",
+      "name": "IF: True Fit",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o-mini-2024-07-18",
+        "options": {
+          "temperature": 0.2,
+          "maxTokens": 256,
+          "topP": 1,
+          "responseFormat": "json_object"
+        },
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are a highly intelligent assistant that performs two tasks:\n1) Normalize company names by removing suffixes and shortening when needed\n2) Generate email subject lines for recruitment outreach\n\nYou will return a single JSON object with both outputs.\n```"
+            },
+            {
+              "role": "user",
+              "content": "**USER PROMPT:**\n```\nYou are analyzing the following data:\n\nCompany name: {{ $('Filter Google Sheets Rows').item.json['company name (H)'] }}\nCompany domain: {{ $('Filter Google Sheets Rows').item.json['domain (J)'] }}\ncompany website text: {{ $('Exa AI - Get Website Content').item.json.highlights }}\nRecruitment niche: {{ $('QC ICP Fit - Redline Recruiters').item.json.recruitment_niche }}\nIdeal client profile (ICP): {{ $('QC ICP Fit - Redline Recruiters').item.json.ideal_client_profile }}\n\n\nTASK 1: NORMALIZE COMPANY NAME\n\nNormalize the company name by:\n- Remove suffixes like: LLC, Inc., Co., PLLC, Ltd., Corporation, Limited, etc.\n- If longer than 15 characters, shorten it by focusing on its most distinctive and memorable element (may be reflected in the domain or person's description)\n- If there is a & symbol, keep all names\n- If input was all caps, reformat to capitalize only first letters of each word\n- Provide only the most recognizable, standout part of the name while discarding generic terms\n\nExamples:\n- \"Egret Consulting, LLC\" → \"Egret Consulting\"\n- \"ACME STAFFING SOLUTIONS INC\" → \"Acme Staffing\"\n- \"Johnson & Associates Recruiting\" → \"Johnson & Associates\"\n\n\nTASK 2: GENERATE SUBJECT LINE\n\nCreate a subject line for outreach email using this formula:\n[ICP in 1-2 words] + [action word]\n\nREQUIREMENTS:\n- Maximum 3 words total\n- ALL LOWERCASE (every single letter must be lowercase)\n- First 1-2 words: Simplify their ideal client profile\n- Last word: Action word (intros, introductions, leads, connections)\n- No punctuation\n\nICP Simplification (all lowercase):\n- \"electrical distributors\" → \"electrical distributor\" or \"distributor\"\n- \"lighting manufacturers\" → \"lighting manufacturer\" or \"manufacturer\"\n- \"SaaS companies\" → \"saas\"\n- \"hedge funds\" → \"hedge fund\"\n- \"general contractors\" → \"contractor\"\n- \"hospitals\" / \"health systems\" → \"hospital\"\n- \"law firms\" → \"law firm\"\n- \"tech startups\" → \"tech startup\"\n- \"companies hiring\" → \"company\"\n\nChoose the shortest, most recognizable version (1-2 words max) + action word.\n\nExamples:\n- ICP: \"electrical distributors\" → \"distributor intros\" or \"electrical intros\"\n- ICP: \"franchisors\" → \"franchisor intros\"\n- ICP: \"saas companies\" → \"saas introductions\"\n- ICP: \"hedge funds\" → \"hedge fund leads\"\n- ICP: \"law firms\" → \"law firm intros\"\n\n\nOUTPUT FORMAT\n\nReturn ONLY ONE JSON object:\n\n{\n  \"normalized_company_name\": \"string\",\n  \"subject_line\": \"string\"\n}\n\nCRITICAL RULES:\n- subject_line must be ALL LOWERCASE\n- subject_line must be maximum 3 words\n- subject_line must have no punctuation\n- Return ONLY the JSON object, no commentary"
+            }
+          ]
+        }
+      },
+      "id": "openai-company-normalizer",
+      "name": "Company Name Normalizer",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        200
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "YOUR_OPENAI_CREDENTIALS_ID",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://api.leadmagic.io/email-validate",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "0d98d6f54a09045f887264696c3a8ed4"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"email\": \"{{ $('Filter Google Sheets Rows').item.json['email (D)'] }}\",\n  \"first_name\": \"{{ $('Filter Google Sheets Rows').item.json['first name (B)'] }}\",\n  \"last_name\": \"{{ $('Filter Google Sheets Rows').item.json['last name (C)'] }}\"\n}",
+        "options": {}
+      },
+      "id": "email-verifier",
+      "name": "Email Verifier",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1340,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition1",
+              "leftValue": "={{ $json.data.email_status }}",
+              "rightValue": "valid",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "condition2",
+              "leftValue": "={{ $('QC ICP Fit - Redline Recruiters').item.json.is_middleman }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-valid-email",
+      "name": "IF: Valid Email",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.instantly.ai/api/v1/lead/add",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "instantlyApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"api_key\": \"{{ $credentials.apiKey }}\",\n  \"campaign_id\": \"6a2d8d26-a94e-493b-ac73-6f1ef9e6fa52\",\n  \"email\": \"{{ $('Email Verifier').item.json.data.email }}\",\n  \"first_name\": \"{{ $('Filter Google Sheets Rows').item.json['first name (B)'] }}\",\n  \"last_name\": \"{{ $('Filter Google Sheets Rows').item.json['last name (C)'] }}\",\n  \"company_name\": \"{{ $('Company Name Normalizer').item.json.normalized_company_name }}\",\n  \"website\": \"{{ $('Filter Google Sheets Rows').item.json['company website (I)'] }}\",\n  \"personalization\": \"\",\n  \"phone\": \"\",\n  \"custom_variables\": {\n    \"niche\": \"{{ $('QC ICP Fit - Redline Recruiters').item.json.recruitment_niche }}\",\n    \"icp\": \"{{ $('QC ICP Fit - Redline Recruiters').item.json.ideal_client_profile }}\",\n    \"subject line\": \"{{ $('Company Name Normalizer').item.json.subject_line }}\"\n  },\n  \"pl_value_lead\": \"2500\",\n  \"skip_if_in_workspace\": true,\n  \"skip_if_in_campaign\": true,\n  \"skip_if_in_list\": true\n}",
+        "options": {}
+      },
+      "id": "instantly-add-lead",
+      "name": "Instantly - Add Lead",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1780,
+        100
+      ],
+      "credentials": {
+        "instantlyApi": {
+          "id": "YOUR_INSTANTLY_CREDENTIALS_ID",
+          "name": "Instantly.ai account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "176d3pUIzMeVIRYZK6nosZosmGtFMLDDcQG2wTZsjhrc",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Process and Upload Main",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "S": "={{ $('Company Name Normalizer').item.json.normalized_company_name }}",
+            "T": "={{ $('QC ICP Fit - Redline Recruiters').item.json.is_decision_maker }}",
+            "U": "={{ $('QC ICP Fit - Redline Recruiters').item.json.recruitment_niche }}",
+            "V": "={{ $('QC ICP Fit - Redline Recruiters').item.json.ideal_client_profile }}",
+            "W": "={{ $('QC ICP Fit - Redline Recruiters').item.json.is_middleman }}",
+            "X": "={{ $('QC ICP Fit - Redline Recruiters').item.json.reasoning }}",
+            "Y": "={{ $('Company Name Normalizer').item.json.subject_line }}",
+            "AB": "={{ $now.toFormat('MM-dd-yyyy') }}",
+            "AC": "={{ $('Instantly - Add Lead').item.json.campaign }}",
+            "AG": "={{ $('Email Verifier').item.json.data.email_status }}"
+          },
+          "matchingColumns": [
+            "ROW_NUMBER"
+          ],
+          "schema": []
+        },
+        "options": {
+          "cellFormat": "USER_ENTERED"
+        }
+      },
+      "id": "update-sheet-valid",
+      "name": "Update Sheet (Valid Email)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        2000,
+        100
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YOUR_GOOGLE_CREDENTIALS_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "176d3pUIzMeVIRYZK6nosZosmGtFMLDDcQG2wTZsjhrc",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Process and Upload Main",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "S": "={{ $('Company Name Normalizer').item.json.normalized_company_name }}",
+            "T": "={{ $('QC ICP Fit - Redline Recruiters').item.json.is_decision_maker }}",
+            "U": "={{ $('QC ICP Fit - Redline Recruiters').item.json.recruitment_niche }}",
+            "V": "={{ $('QC ICP Fit - Redline Recruiters').item.json.ideal_client_profile }}",
+            "W": "={{ $('QC ICP Fit - Redline Recruiters').item.json.is_middleman }}",
+            "X": "={{ $('QC ICP Fit - Redline Recruiters').item.json.reasoning }}",
+            "Y": "={{ $('Company Name Normalizer').item.json.subject_line }}",
+            "AB": "={{ $now.toFormat('MM-dd-yyyy') }}",
+            "AG": "={{ $('Email Verifier').item.json.data.email_status }}"
+          },
+          "matchingColumns": [
+            "ROW_NUMBER"
+          ],
+          "schema": []
+        },
+        "options": {
+          "cellFormat": "USER_ENTERED"
+        }
+      },
+      "id": "update-sheet-invalid",
+      "name": "Update Sheet (Invalid Email)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        1780,
+        300
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YOUR_GOOGLE_CREDENTIALS_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "176d3pUIzMeVIRYZK6nosZosmGtFMLDDcQG2wTZsjhrc",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Process and Upload Main",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "T": "={{ $('QC ICP Fit - Redline Recruiters').item.json.is_decision_maker }}",
+            "U": "={{ $('QC ICP Fit - Redline Recruiters').item.json.recruitment_niche }}",
+            "V": "={{ $('QC ICP Fit - Redline Recruiters').item.json.ideal_client_profile }}",
+            "W": "={{ $('QC ICP Fit - Redline Recruiters').item.json.is_middleman }}",
+            "X": "={{ $('QC ICP Fit - Redline Recruiters').item.json.reasoning }}"
+          },
+          "matchingColumns": [
+            "ROW_NUMBER"
+          ],
+          "schema": []
+        },
+        "options": {
+          "cellFormat": "USER_ENTERED"
+        }
+      },
+      "id": "update-sheet-not-fit",
+      "name": "Update Sheet (Not A Fit)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        1120,
+        400
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YOUR_GOOGLE_CREDENTIALS_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Filter Google Sheets Rows": {
+      "main": [
+        [
+          {
+            "node": "Exa AI - Get Website Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Exa AI - Get Website Content": {
+      "main": [
+        [
+          {
+            "node": "QC ICP Fit - Redline Recruiters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "QC ICP Fit - Redline Recruiters": {
+      "main": [
+        [
+          {
+            "node": "IF: True Fit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: True Fit": {
+      "main": [
+        [
+          {
+            "node": "Company Name Normalizer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Sheet (Not A Fit)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Company Name Normalizer": {
+      "main": [
+        [
+          {
+            "node": "Email Verifier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Verifier": {
+      "main": [
+        [
+          {
+            "node": "IF: Valid Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Valid Email": {
+      "main": [
+        [
+          {
+            "node": "Instantly - Add Lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Sheet (Invalid Email)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Instantly - Add Lead": {
+      "main": [
+        [
+          {
+            "node": "Update Sheet (Valid Email)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "id": "redline-recruiter-icp-cleaner",
+  "meta": {
+    "instanceId": "your-n8n-instance-id"
+  },
+  "tags": []
+}
