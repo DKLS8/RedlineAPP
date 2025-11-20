@@ -1,0 +1,330 @@
+{
+  "name": "LinkedIn Job Scraper - Part 1 (Start Apify)",
+  "nodes": [
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "1wEcwHhN2n0x9ZvCEwPBwCjsd0r5io--nAyUdPzyCpTg",
+          "mode": "list",
+          "cachedResultName": "Acct/Fin Hiring"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "\"Accountant\" Jobs State Search"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "DatasetID (D)",
+              "lookupValue": ""
+            }
+          ]
+        },
+        "options": {
+          "rangeDefinition": "specifyRange",
+          "range": "A:CZ"
+        }
+      },
+      "id": "google-sheets-filter",
+      "name": "Filter Rows - Empty DatasetID",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        300
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-oauth",
+          "name": "Google Sheets OAuth2 API"
+        }
+      },
+      "notes": "Filters rows from Google Sheet where column D (DatasetID) is empty"
+    },
+    {
+      "parameters": {
+        "resource": "actor",
+        "operation": "run",
+        "actorId": "hKByXkMQaC5Qt9UMN",
+        "waitForFinish": true,
+        "jsonParameters": true,
+        "inputJson": "={\n  \"urls\": [\n    \"{{ $json.URL }}\"\n  ],\n  \"scrapeCompany\": true,\n  \"count\": 2000\n}",
+        "options": {
+          "timeout": 3600,
+          "maxItems": 2000
+        }
+      },
+      "id": "apify-run-actor",
+      "name": "Run LinkedIn Jobs Scraper",
+      "type": "n8n-nodes-base.apify",
+      "typeVersion": 1,
+      "position": [
+        460,
+        300
+      ],
+      "credentials": {
+        "apifyApi": {
+          "id": "apify-credentials",
+          "name": "Apify API"
+        }
+      },
+      "notes": "Runs the LinkedIn Jobs Scraper actor (curious_coder/linkedin-jobs-scraper) with 2000 job limit",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 60000
+    },
+    {
+      "parameters": {
+        "amount": 5,
+        "unit": "seconds"
+      },
+      "id": "wait-5-seconds",
+      "name": "Wait 5 Seconds",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        680,
+        300
+      ],
+      "webhookId": "wait-webhook",
+      "notes": "Wait 5 seconds before continuing"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "dataset-id",
+              "name": "Dataset ID",
+              "value": "={{ $json.defaultDatasetId }}",
+              "type": "string"
+            },
+            {
+              "id": "run-id",
+              "name": "Run ID",
+              "value": "={{ $json.id }}",
+              "type": "string"
+            },
+            {
+              "id": "actor-id",
+              "name": "Actor ID",
+              "value": "={{ $json.actId }}",
+              "type": "string"
+            },
+            {
+              "id": "status",
+              "name": "Status",
+              "value": "={{ $json.status }}",
+              "type": "string"
+            },
+            {
+              "id": "row-number",
+              "name": "Row Number",
+              "value": "={{ $('Filter Rows - Empty DatasetID').item.json.__row_number__ }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-variables",
+      "name": "Set Apify Variables",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [
+        900,
+        300
+      ],
+      "notes": "Store Apify run details and row number for later use"
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1wEcwHhN2n0x9ZvCEwPBwCjsd0r5io--nAyUdPzyCpTg",
+          "mode": "list",
+          "cachedResultName": "Acct/Fin Hiring"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "\"Accountant\" Jobs State Search"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "DatasetID (D)": "={{ $json['Dataset ID'] }}"
+          },
+          "matchingColumns": [
+            "__row_number__"
+          ],
+          "schema": [
+            {
+              "id": "DatasetID (D)",
+              "displayName": "DatasetID (D)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "USER_ENTERED",
+          "useAppend": false
+        }
+      },
+      "id": "google-sheets-update",
+      "name": "Update Row with Dataset ID",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        1120,
+        300
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-oauth",
+          "name": "Google Sheets OAuth2 API"
+        }
+      },
+      "notes": "Updates the Google Sheet row with the Dataset ID from Apify"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://hook.us1.make.com/qjlfndmga73sk5tup4v8df3986mi8hap",
+        "authentication": "none",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "dataset_id",
+              "value": "={{ $json['Dataset ID'] }}"
+            },
+            {
+              "name": "run_id",
+              "value": "={{ $json['Run ID'] }}"
+            },
+            {
+              "name": "actor_id",
+              "value": "={{ $json['Actor ID'] }}"
+            },
+            {
+              "name": "status",
+              "value": "={{ $json['Status'] }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": false,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "webhook-trigger-part2",
+      "name": "Trigger Part 2 Workflow",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1340,
+        300
+      ],
+      "notes": "Sends webhook to trigger the second part of the workflow (data processing)"
+    }
+  ],
+  "connections": {
+    "Filter Rows - Empty DatasetID": {
+      "main": [
+        [
+          {
+            "node": "Run LinkedIn Jobs Scraper",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run LinkedIn Jobs Scraper": {
+      "main": [
+        [
+          {
+            "node": "Wait 5 Seconds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 5 Seconds": {
+      "main": [
+        [
+          {
+            "node": "Set Apify Variables",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Apify Variables": {
+      "main": [
+        [
+          {
+            "node": "Update Row with Dataset ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Row with Dataset ID": {
+      "main": [
+        [
+          {
+            "node": "Trigger Part 2 Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "createdAt": "2025-01-20T00:00:00.000Z",
+      "updatedAt": "2025-01-20T00:00:00.000Z",
+      "id": "linkedin-scraper",
+      "name": "LinkedIn Scraper"
+    }
+  ],
+  "triggerCount": 0,
+  "updatedAt": "2025-01-20T00:00:00.000Z",
+  "versionId": "1"
+}
