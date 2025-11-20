@@ -1,0 +1,595 @@
+{
+  "name": "LinkedIn Jobs Processor - Quest ICP Analysis",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "quest-lijobs-scrape",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook - Quest LIJOBS",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "quest-lijobs-scrape-allstates"
+    },
+    {
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "apifyApi",
+        "resource": "dataset",
+        "operation": "get",
+        "datasetId": "={{ $json.body.dataset_id }}",
+        "format": "json",
+        "clean": true
+      },
+      "id": "apify-fetch-dataset",
+      "name": "Apify - Fetch Dataset Items",
+      "type": "n8n-nodes-base.apify",
+      "typeVersion": 1,
+      "position": [460, 300],
+      "credentials": {
+        "apifyApi": {
+          "id": "apify-connection",
+          "name": "Apify API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1PNEVqUFcPLoWbbkP9BwJ4arIKlrP8ZO0SknKAYMQThU",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "google-sheets-filter-master",
+      "name": "Google Sheets - Check Master List",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [680, 300],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-connection",
+          "name": "Google Sheets"
+        }
+      },
+      "executeOnce": false
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.companyEmployeesCount }}",
+              "operation": "smaller",
+              "value2": 500
+            }
+          ],
+          "string": [
+            {
+              "value1": "={{ $json.companyName }}",
+              "operation": "notEqual",
+              "value2": "A hiring company"
+            },
+            {
+              "value1": "={{ $json.employmentType }}",
+              "operation": "equals",
+              "value2": "Full-time"
+            }
+          ]
+        }
+      },
+      "id": "filter-less-than-500",
+      "name": "Filter - Less Than 500 Employees",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "gpt-4o-mini"
+            },
+            {
+              "name": "temperature",
+              "value": 0.2
+            },
+            {
+              "name": "max_tokens",
+              "value": 1080
+            },
+            {
+              "name": "response_format",
+              "value": "={{ { \"type\": \"json_object\" } }}"
+            },
+            {
+              "name": "messages",
+              "value": "={{ [\n  {\n    \"role\": \"system\",\n    \"content\": \"You are an ICP analysis module for Quest, a CPA-led recruiting firm specializing exclusively in accounting and finance roles. \\n\\nYour task is to:\\n1. Determine if the company posting this job is the DIRECT EMPLOYER who will employ the accounting/finance professional—NOT a recruiter, staffing firm, or any intermediary\\n2. Determine if the company is a CPA/accounting firm (which should be REJECTED - candidates want to leave public accounting for private industry roles)\\n3. Flag if the job description explicitly prohibits recruiter contact\\n4. Flag if there's an email address or instructions for how to apply\\n\\nIMPORTANT: Quest works with companies in ALL industries (technology, healthcare, manufacturing, retail, food service, nonprofits, etc.). The company's business type DOES NOT MATTER as long as:\\n1. They are hiring DIRECTLY for their own organization\\n2. The role is accounting/finance related\\n3. They are NOT a CPA/accounting firm\\n\\nYou are NOT filtering for finance/accounting companies—you are filtering OUT recruiting intermediaries AND CPA/accounting firms.\"\n  },\n  {\n    \"role\": \"user\",\n    \"content\": \"Analyze this company to determine if they are a QUALIFIED DIRECT EMPLOYER for Quest's recruiting services.\\n\\n## DISQUALIFICATION CRITERIA (Immediate Rejection):\\n\\n### ❌ REJECT if the company is ANY of these:\\n- Recruiting firms, staffing agencies, headhunters, executive search firms\\n- Talent acquisition firms, HR consulting companies, workforce solutions providers\\n- Placement agencies, job board services, recruitment marketplaces\\n- ANY company whose PRIMARY business model is connecting candidates with OTHER companies\\n- Companies that use phrases like:\\n  - \\\"we place candidates,\\\" \\\"our clients,\\\" \\\"representing our client\\\"\\n  - \\\"staffing solutions,\\\" \\\"talent acquisition services,\\\" \\\"executive search\\\"\\n  - \\\"connecting top talent,\\\" \\\"recruitment specialists\\\"\\n\\n### ❌ REJECT if the company is a CPA FIRM or ACCOUNTING FIRM:\\n- Public accounting firms (Big 4, regional, or local CPA firms)\\n- Audit firms, tax firms, accounting service providers\\n- Companies whose PRIMARY business is providing accounting/audit/tax services TO OTHER COMPANIES\\n- Look for indicators like:\\n  - Company name contains: \\\"CPA\\\", \\\"Certified Public Accountants\\\", \\\"LLP\\\", \\\"Accounting Firm\\\", \\\"Audit\\\", \\\"Tax Services\\\"\\n  - Company description mentions: \\\"providing accounting services to clients\\\", \\\"audit services\\\", \\\"tax preparation for businesses\\\", \\\"serving clients across industries\\\"\\n  - Common Big 4: Deloitte, PwC, EY, KPMG\\n  - Regional/local firms: [Company Name] CPAs, [Company Name] LLP, [Company Name] & Associates\\n- **Why excluded**: Public accounting roles typically involve demanding busy season hours and less work-life balance. Most candidates are trying to LEAVE public accounting for private industry roles.\\n\\n### Examples of DISQUALIFIED Companies:\\n- Sterling Search Partners (staffing firm placing candidates)\\n- Paro (marketplace connecting fractional finance talent to businesses)\\n- Robert Half (staffing agency)\\n- Kforce (recruiting firm)\\n- **Deloitte (Big 4 CPA firm)**\\n- **Grant Thornton (national CPA firm)**\\n- **Smith & Associates CPAs (local accounting firm)**\\n- **Johnson Tax & Audit LLP (accounting services firm)**\\n\\n---\\n\\n## QUALIFICATION CRITERIA (What Passes):\\n\\n### ✅ ACCEPT if the company:\\n- Is hiring an accounting/finance professional to work FOR THEIR OWN COMPANY\\n- Can be in ANY industry: tech, manufacturing, healthcare, restaurants, retail, construction, nonprofits, etc.\\n- The role will report to their internal finance team\\n- They are the end employer, not a middleman\\n- **NOT a CPA/accounting firm that provides services to other businesses**\\n\\n### Examples of QUALIFIED Companies:\\n- Tech startup hiring a Controller for their own operations\\n- Restaurant chain hiring an Accounting Manager  \\n- Construction company hiring an Assistant Controller\\n- Hospital hiring a Financial Analyst\\n- Manufacturing company hiring a Senior Accountant\\n- Nonprofit hiring a Finance Director\\n- Retail company hiring a Tax Manager for internal tax compliance\\n\\n---\\n\\n## ADDITIONAL FLAGS TO CHECK:\\n\\n### 🚫 FLAG 1: Recruiter Contact Prohibited\\n\\n**Check the job description for phrases that explicitly prohibit recruiter/agency contact:**\\n\\nCommon phrases to look for:\\n- \\\"No recruiters\\\"\\n- \\\"No agencies\\\"\\n- \\\"No third party recruiters\\\"\\n- \\\"No staffing agencies\\\"\\n- \\\"Recruiters please do not contact\\\"\\n- \\\"No recruiting firms\\\"\\n- \\\"Direct applicants only\\\"\\n- \\\"No agencies please\\\"\\n- \\\"Third party applications will not be accepted\\\"\\n- \\\"We are not working with recruiters\\\"\\n- \\\"No solicitation from agencies\\\"\\n```\\nIF job description contains ANY of these phrases:\\n  → recruiter_contact_prohibited = true\\nELSE:\\n  → recruiter_contact_prohibited = false\\n```\\n\\n---\\n\\n### 📧 FLAG 2: Email or Application Instructions Present\\n\\n**Check the job description for:**\\n1. **Email addresses** (anything in format: name@domain.com)\\n2. **Application instructions** (how to apply, where to send resume)\\n\\n**Email Detection:**\\n- Look for any email address format: username@domain.com\\n- Extract the email if found\\n- Common patterns: careers@, hr@, jobs@, apply@, recruiting@, firstname.lastname@\\n\\n**Application Instructions Detection:**\\n- Look for phrases like:\\n  - \\\"Please send resume to...\\\"\\n  - \\\"Apply by emailing...\\\"\\n  - \\\"Submit application to...\\\"\\n  - \\\"Send your resume and cover letter to...\\\"\\n  - \\\"Email your CV to...\\\"\\n  - \\\"To apply, email...\\\"\\n  - \\\"Contact us at...\\\"\\n  - \\\"Interested candidates should email...\\\"\\n  - \\\"Please submit to...\\\"\\n```\\nIF job description contains email address OR application instructions:\\n  → has_contact_instructions = true\\n  → contact_email = \\\"extracted email address or 'see description'\\\"\\n  → contact_method = \\\"description of how to apply\\\"\\nELSE:\\n  → has_contact_instructions = false\\n  → contact_email = null\\n  → contact_method = null\\n```\\n\\n---\\n\\n### 🏢 FLAG 3: Industry and Sub-Niche Classification\\n\\n**Determine the company's industry and sub-niche:**\\n\\n**Primary Industry Categories:**\\n- Technology (Software, SaaS, Hardware, IT Services, Cybersecurity, etc.)\\n- Healthcare (Hospitals, Medical Devices, Pharmaceuticals, Biotech, Health Services, etc.)\\n- Manufacturing (Industrial, Consumer Goods, Electronics, Automotive, Aerospace, etc.)\\n- Financial Services (Banking, Insurance, Investment, FinTech, etc.)\\n- Retail (E-commerce, Brick & Mortar, Consumer Products, etc.)\\n- Food & Beverage (Restaurants, Food Manufacturing, Distribution, Hospitality, etc.)\\n- Construction & Real Estate (Commercial Construction, Residential, Property Management, Development, etc.)\\n- Professional Services (Consulting, Legal, Accounting, Marketing, etc.)\\n- Nonprofit (Education, Charity, Associations, Foundations, etc.)\\n- Energy & Utilities (Oil & Gas, Renewable Energy, Electric, Water, etc.)\\n- Transportation & Logistics (Shipping, Freight, Supply Chain, Aviation, etc.)\\n- Media & Entertainment (Publishing, Broadcasting, Gaming, Streaming, etc.)\\n- Agriculture (Farming, AgTech, Food Production, etc.)\\n- Government (Federal, State, Local, Public Sector, etc.)\\n- Other (specify if doesn't fit above)\\n\\n**Sub-Niche:**\\n- Be more specific within the primary industry\\n- Examples:\\n  - Technology → \\\"Enterprise SaaS\\\" or \\\"Mobile App Development\\\" or \\\"Cloud Infrastructure\\\"\\n  - Healthcare → \\\"Hospital System\\\" or \\\"Medical Device Manufacturing\\\" or \\\"Telemedicine\\\"\\n  - Manufacturing → \\\"Automotive Parts\\\" or \\\"Consumer Electronics\\\" or \\\"Industrial Equipment\\\"\\n  - Food & Beverage → \\\"Fast Casual Restaurant Chain\\\" or \\\"Food Manufacturing\\\" or \\\"Catering Services\\\"\\n```\\nBased on company name, description, website, and slogan:\\n  → industry = \\\"Primary industry category\\\"\\n  → sub_niche = \\\"More specific sub-category or business model\\\"\\n```\\n\\n---\\n\\n## INPUT DATA:\\n- Company Name: \" + $json.companyName + \"\\n- Company Website: \" + $json.companyWebsite + \"\\n- Company Description: \" + $json.companyDescription + \"\\n- Company Slogan: \" + $json.companySlogan + \"\\n- Job Title: \" + $json.title + \"\\n- Job Description: \" + $json.descriptionText + \"\\n\\n---\\n\\n## OUTPUT FORMAT (JSON ONLY):\\n```json\\n{\\n  \\\"fit\\\": true|false,\\n  \\\"is_direct_employer\\\": true|false,\\n  \\\"is_recruiting_intermediary\\\": true|false,\\n  \\\"is_cpa_firm\\\": true|false,\\n  \\\"is_accounting_finance_role\\\": true|false,\\n  \\\"recruiter_contact_prohibited\\\": true|false,\\n  \\\"has_contact_instructions\\\": true|false,\\n  \\\"contact_email\\\": \\\"email@domain.com or null\\\",\\n  \\\"contact_method\\\": \\\"description of how to apply or null\\\",\\n  \\\"industry\\\": \\\"Primary industry category\\\",\\n  \\\"sub_niche\\\": \\\"Specific sub-category or business model\\\",\\n  \\\"company_primary_business\\\": \\\"brief description of what the company actually does\\\",\\n  \\\"role_title\\\": \\\"the job title from posting\\\",\\n  \\\"reason\\\": \\\"One sentence: if REJECTED state why (recruiter/intermediary OR CPA/accounting firm OR wrong role type OR recruiter contact prohibited); if ACCEPTED state company type + role being hired\\\"\\n}\\n```\\n\\nReturn ONLY valid JSON matching the format above.\"\n  }\n] }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "openai-icp-analysis",
+      "name": "OpenAI - QC ICP Fit Analysis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1120, 300],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-connection",
+          "name": "OpenAI"
+        }
+      },
+      "continueOnFail": true,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "amount": 5,
+        "unit": "seconds"
+      },
+      "id": "wait-5-seconds",
+      "name": "Wait 5 Seconds",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1340, 300],
+      "webhookId": ""
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.choices[0].message.content ? JSON.parse($json.choices[0].message.content).recruiter_contact_prohibited : false }}",
+              "operation": "notEqual",
+              "value2": true
+            },
+            {
+              "value1": "={{ $json.choices[0].message.content ? JSON.parse($json.choices[0].message.content).is_accounting_finance_role : false }}",
+              "operation": "equal",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "filter-dnc",
+      "name": "Filter - Not DNC",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.choices[0].message.content ? JSON.parse($json.choices[0].message.content).is_recruiting_intermediary : false }}",
+              "operation": "notEqual",
+              "value2": true
+            },
+            {
+              "value1": "={{ $json.choices[0].message.content ? JSON.parse($json.choices[0].message.content).fit : false }}",
+              "operation": "equal",
+              "value2": true
+            },
+            {
+              "value1": "={{ $json.choices[0].message.content ? JSON.parse($json.choices[0].message.content).is_cpa_firm : false }}",
+              "operation": "notEqual",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "filter-not-recruiter",
+      "name": "Filter - Not A Recruiter",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1780, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract domain from company website URL\nconst companyWebsite = $input.first().json.companyWebsite;\n\nif (companyWebsite) {\n  const match = companyWebsite.match(/^(?:https?:\\/\\/)?(?:[^@]+@)?(?:www\\.)?([^:\\/?=]+)/);\n  const domain = match ? match[1] : null;\n  \n  return [{\n    json: {\n      ...($input.first().json),\n      domain: domain\n    }\n  }];\n}\n\nreturn $input.all();"
+      },
+      "id": "extract-domain",
+      "name": "Extract Domain from Website",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 100]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1wEcwHhN2n0x9ZvCEwPBwCjsd0r5io--nAyUdPzyCpTg",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "\"Accountant\" Results 10-14-2025",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "applicantsCount": "={{ $json.applicantsCount }}",
+            "companyAddress": "={{ $json.companyAddress ? $json.companyAddress.streetAddress + ' ' + $json.companyAddress.addressLocality + ', ' + $json.companyAddress.addressRegion + ' ' + $json.companyAddress.addressCountry + ' ' + $json.companyAddress.postalCode : '' }}",
+            "companyName": "={{ $json.companyName }}",
+            "companySlogan": "={{ $json.companySlogan }}",
+            "companyDescription": "={{ $json.companyDescription }}",
+            "companyEmployeesCount": "={{ $json.companyEmployeesCount }}",
+            "companyLinkedinUrl": "={{ $json.companyLinkedinUrl }}",
+            "companyWebsite": "={{ $json.companyWebsite }}",
+            "domain": "={{ $json.domain }}",
+            "id": "={{ $json.id }}",
+            "link": "={{ $json.link }}",
+            "title": "={{ $json.title }}",
+            "postedAt": "={{ $json.postedAt ? new Date($json.postedAt).toLocaleDateString('en-US', {month: '2-digit', day: '2-digit', year: 'numeric'}) : '' }}",
+            "location": "={{ $json.location }}",
+            "descriptionText": "={{ $json.descriptionText }}",
+            "employmentType": "={{ $json.employmentType }}",
+            "industries": "={{ $json.industries }}",
+            "jobFunction": "={{ $json.jobFunction }}",
+            "jobPosterName": "={{ $json.jobPosterName }}",
+            "jobPosterProfileUrl": "={{ $json.jobPosterProfileUrl }}",
+            "jobPosterTitle": "={{ $json.jobPosterTitle }}",
+            "salary": "={{ $json.salary }}",
+            "salaryInfo": "={{ $json.salaryInfo ? JSON.stringify($json.salaryInfo) : '' }}",
+            "fit": "={{ $json.choices && $json.choices[0] && $json.choices[0].message && $json.choices[0].message.content ? JSON.parse($json.choices[0].message.content).fit : '' }}",
+            "is_direct_employer": "={{ $json.choices && $json.choices[0] && $json.choices[0].message && $json.choices[0].message.content ? JSON.parse($json.choices[0].message.content).is_direct_employer : '' }}",
+            "is_accounting_finance_role": "={{ $json.choices && $json.choices[0] && $json.choices[0].message && $json.choices[0].message.content ? JSON.parse($json.choices[0].message.content).is_accounting_finance_role : '' }}",
+            "role_title": "={{ $json.choices && $json.choices[0] && $json.choices[0].message && $json.choices[0].message.content ? JSON.parse($json.choices[0].message.content).role_title : '' }}",
+            "industry": "={{ $json.choices && $json.choices[0] && $json.choices[0].message && $json.choices[0].message.content ? JSON.parse($json.choices[0].message.content).industry : '' }}",
+            "sub_niche": "={{ $json.choices && $json.choices[0] && $json.choices[0].message && $json.choices[0].message.content ? JSON.parse($json.choices[0].message.content).sub_niche : '' }}",
+            "reason": "={{ $json.choices && $json.choices[0] && $json.choices[0].message && $json.choices[0].message.content ? JSON.parse($json.choices[0].message.content).reason : '' }}",
+            "has_contact_instructions": "={{ $json.choices && $json.choices[0] && $json.choices[0].message && $json.choices[0].message.content ? JSON.parse($json.choices[0].message.content).has_contact_instructions : '' }}",
+            "contact_email": "={{ $json.choices && $json.choices[0] && $json.choices[0].message && $json.choices[0].message.content ? JSON.parse($json.choices[0].message.content).contact_email : '' }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "add-to-results-sheet",
+      "name": "Google Sheets - Add Qualified Lead",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [2220, 100],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-connection",
+          "name": "Google Sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1wEcwHhN2n0x9ZvCEwPBwCjsd0r5io--nAyUdPzyCpTg",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "\"Accountant\" Results 10-14-2025",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "applicantsCount": "={{ $json.applicantsCount }}",
+            "companyAddress": "={{ $json.companyAddress ? $json.companyAddress.streetAddress + ' ' + $json.companyAddress.addressLocality + ', ' + $json.companyAddress.addressRegion + ' ' + $json.companyAddress.addressCountry + ' ' + $json.companyAddress.postalCode : '' }}",
+            "companyName": "={{ $json.companyName }}",
+            "companySlogan": "={{ $json.companySlogan }}",
+            "companyDescription": "={{ $json.companyDescription }}",
+            "companyEmployeesCount": "={{ $json.companyEmployeesCount }}",
+            "companyLinkedinUrl": "={{ $json.companyLinkedinUrl }}",
+            "companyWebsite": "={{ $json.companyWebsite }}",
+            "id": "={{ $json.id }}",
+            "link": "={{ $json.link }}",
+            "title": "={{ $json.title }}",
+            "postedAt": "={{ $json.postedAt ? new Date($json.postedAt).toLocaleDateString('en-US', {month: '2-digit', day: '2-digit', year: 'numeric'}) : '' }}",
+            "location": "={{ $json.location }}",
+            "descriptionText": "={{ $json.descriptionText }}",
+            "employmentType": "={{ $json.employmentType }}",
+            "industries": "={{ $json.industries }}",
+            "jobFunction": "={{ $json.jobFunction }}",
+            "jobPosterName": "={{ $json.jobPosterName }}",
+            "jobPosterProfileUrl": "={{ $json.jobPosterProfileUrl }}",
+            "jobPosterTitle": "={{ $json.jobPosterTitle }}",
+            "salary": "={{ $json.salary }}",
+            "salaryInfo": "={{ $json.salaryInfo ? JSON.stringify($json.salaryInfo) : '' }}",
+            "fit": "={{ $json.choices && $json.choices[0] && $json.choices[0].message && $json.choices[0].message.content ? JSON.parse($json.choices[0].message.content).fit : '' }}",
+            "is_direct_employer": "={{ $json.choices && $json.choices[0] && $json.choices[0].message && $json.choices[0].message.content ? JSON.parse($json.choices[0].message.content).is_direct_employer : '' }}",
+            "is_accounting_finance_role": "={{ $json.choices && $json.choices[0] && $json.choices[0].message && $json.choices[0].message.content ? JSON.parse($json.choices[0].message.content).is_accounting_finance_role : '' }}",
+            "role_title": "={{ $json.choices && $json.choices[0] && $json.choices[0].message && $json.choices[0].message.content ? JSON.parse($json.choices[0].message.content).role_title : '' }}",
+            "industry": "={{ $json.choices && $json.choices[0] && $json.choices[0].message && $json.choices[0].message.content ? JSON.parse($json.choices[0].message.content).industry : '' }}",
+            "sub_niche": "={{ $json.choices && $json.choices[0] && $json.choices[0].message && $json.choices[0].message.content ? JSON.parse($json.choices[0].message.content).sub_niche : '' }}",
+            "reason": "={{ $json.choices && $json.choices[0] && $json.choices[0].message && $json.choices[0].message.content ? JSON.parse($json.choices[0].message.content).reason : '' }}",
+            "has_contact_instructions": "={{ $json.choices && $json.choices[0] && $json.choices[0].message && $json.choices[0].message.content ? JSON.parse($json.choices[0].message.content).has_contact_instructions : '' }}",
+            "contact_email": "={{ $json.choices && $json.choices[0] && $json.choices[0].message && $json.choices[0].message.content ? JSON.parse($json.choices[0].message.content).contact_email : '' }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "add-to-results-no-website",
+      "name": "Google Sheets - Add Lead (No Website)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [2000, 300],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-connection",
+          "name": "Google Sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.choices && $json.choices[0] && $json.choices[0].message && $json.choices[0].message.content ? JSON.parse($json.choices[0].message.content).is_recruiting_intermediary : false }}",
+              "operation": "equal",
+              "value2": true
+            }
+          ],
+          "string": [
+            {
+              "value1": "={{ $json.jobPosterName }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "id": "filter-is-recruiter",
+      "name": "Filter - Is Recruiter",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1780, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract domain from company website URL\nconst companyWebsite = $input.first().json.companyWebsite;\n\nif (companyWebsite) {\n  const match = companyWebsite.match(/^(?:https?:\\/\\/)?(?:[^@]+@)?(?:www\\.)?([^:\\/?=]+)/);\n  const domain = match ? match[1] : null;\n  \n  return [{\n    json: {\n      ...($input.first().json),\n      domain: domain\n    }\n  }];\n}\n\nreturn $input.all();"
+      },
+      "id": "extract-domain-recruiter",
+      "name": "Extract Domain (Recruiter)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 500]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1PNEVqUFcPLoWbbkP9BwJ4arIKlrP8ZO0SknKAYMQThU",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "applicantsCount": "={{ $json.applicantsCount }}",
+            "companyAddress": "={{ $json.companyAddress ? $json.companyAddress.streetAddress + ' ' + $json.companyAddress.addressLocality + ', ' + $json.companyAddress.addressRegion + ' ' + $json.companyAddress.addressCountry + ' ' + $json.companyAddress.postalCode : '' }}",
+            "companyName": "={{ $json.companyName }}",
+            "companySlogan": "={{ $json.companySlogan }}",
+            "companyDescription": "={{ $json.companyDescription }}",
+            "companyEmployeesCount": "={{ $json.companyEmployeesCount }}",
+            "companyLinkedinUrl": "={{ $json.companyLinkedinUrl }}",
+            "companyWebsite": "={{ $json.companyWebsite }}",
+            "domain": "={{ $json.domain }}",
+            "id": "={{ $json.id }}",
+            "link": "={{ $json.link }}",
+            "title": "={{ $json.title }}",
+            "postedAt": "={{ $json.postedAt ? new Date($json.postedAt).toLocaleDateString('en-US', {month: '2-digit', day: '2-digit', year: 'numeric'}) : '' }}",
+            "location": "={{ $json.location }}",
+            "descriptionText": "={{ $json.descriptionText }}",
+            "employmentType": "={{ $json.employmentType }}",
+            "industries": "={{ $json.industries }}",
+            "jobFunction": "={{ $json.jobFunction }}",
+            "jobPosterName": "={{ $json.jobPosterName }}",
+            "jobPosterProfileUrl": "={{ $json.jobPosterProfileUrl }}",
+            "jobPosterTitle": "={{ $json.jobPosterTitle }}",
+            "salary": "={{ $json.salary }}",
+            "salaryInfo": "={{ $json.salaryInfo ? JSON.stringify($json.salaryInfo) : '' }}",
+            "fit": "={{ $json.choices && $json.choices[0] && $json.choices[0].message && $json.choices[0].message.content ? JSON.parse($json.choices[0].message.content).fit : '' }}",
+            "is_direct_employer": "={{ $json.choices && $json.choices[0] && $json.choices[0].message && $json.choices[0].message.content ? JSON.parse($json.choices[0].message.content).is_direct_employer : '' }}",
+            "is_accounting_finance_role": "={{ $json.choices && $json.choices[0] && $json.choices[0].message && $json.choices[0].message.content ? JSON.parse($json.choices[0].message.content).is_accounting_finance_role : '' }}",
+            "role_title": "={{ $json.choices && $json.choices[0] && $json.choices[0].message && $json.choices[0].message.content ? JSON.parse($json.choices[0].message.content).role_title : '' }}",
+            "company_primary_business": "={{ $json.choices && $json.choices[0] && $json.choices[0].message && $json.choices[0].message.content ? JSON.parse($json.choices[0].message.content).company_primary_business : '' }}",
+            "is_recruiting_intermediary": "={{ $json.choices && $json.choices[0] && $json.choices[0].message && $json.choices[0].message.content ? JSON.parse($json.choices[0].message.content).is_recruiting_intermediary : '' }}",
+            "reason": "={{ $json.choices && $json.choices[0] && $json.choices[0].message && $json.choices[0].message.content ? JSON.parse($json.choices[0].message.content).reason : '' }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "add-to-recruiter-sheet",
+      "name": "Google Sheets - Add Recruiter",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [2220, 500],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-connection",
+          "name": "Google Sheets"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook - Quest LIJOBS": {
+      "main": [
+        [
+          {
+            "node": "Apify - Fetch Dataset Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apify - Fetch Dataset Items": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - Check Master List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Check Master List": {
+      "main": [
+        [
+          {
+            "node": "Filter - Less Than 500 Employees",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter - Less Than 500 Employees": {
+      "main": [
+        [
+          {
+            "node": "OpenAI - QC ICP Fit Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI - QC ICP Fit Analysis": {
+      "main": [
+        [
+          {
+            "node": "Wait 5 Seconds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 5 Seconds": {
+      "main": [
+        [
+          {
+            "node": "Filter - Not DNC",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter - Not DNC": {
+      "main": [
+        [
+          {
+            "node": "Filter - Not A Recruiter",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Filter - Is Recruiter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter - Not A Recruiter": {
+      "main": [
+        [
+          {
+            "node": "Extract Domain from Website",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Google Sheets - Add Lead (No Website)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Domain from Website": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - Add Qualified Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter - Is Recruiter": {
+      "main": [
+        [
+          {
+            "node": "Extract Domain (Recruiter)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Domain (Recruiter)": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - Add Recruiter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2025-11-20T00:00:00.000Z",
+  "versionId": "1"
+}
