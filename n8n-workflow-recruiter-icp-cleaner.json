@@ -1,0 +1,732 @@
+{
+  "name": "Redline Recruiter ICP Cleaner - Recruiter W/ Active Listing",
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "read",
+        "sheetId": "Sheet1",
+        "filtersUI": {
+          "filterSets": [
+            {
+              "conditions": [
+                {
+                  "column": "W",
+                  "condition": "notexist"
+                },
+                {
+                  "column": "S",
+                  "condition": "exist"
+                },
+                {
+                  "column": "AJ",
+                  "condition": "notexist"
+                }
+              ],
+              "combineOperation": "AND"
+            }
+          ]
+        },
+        "options": {
+          "valueRenderMode": "FORMATTED_VALUE",
+          "dateTimeRenderOption": "FORMATTED_STRING"
+        }
+      },
+      "name": "Google Sheets - Filter Rows",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [250, 300],
+      "id": "google-sheets-filter",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YOUR_GOOGLE_CREDENTIALS_ID",
+          "name": "Google Sheets Account"
+        }
+      },
+      "notes": "Spreadsheet ID: 1PNEVqUFcPLoWbbkP9BwJ4arIKlrP8ZO0SknKAYMQThU"
+    },
+    {
+      "parameters": {
+        "url": "https://api.exa.ai/contents",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "exaApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "ids",
+              "value": "={{ [$json.companyWebsite] }}"
+            },
+            {
+              "name": "text",
+              "value": "={{ { includeHtmlTags: false } }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Exa AI - Company Website",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [450, 300],
+      "id": "exa-company-website",
+      "continueOnFail": true,
+      "notes": "Get company website content"
+    },
+    {
+      "parameters": {
+        "url": "https://api.exa.ai/contents",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "exaApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "ids",
+              "value": "={{ [$json.jobPosterProfileUrl] }}"
+            },
+            {
+              "name": "text",
+              "value": "={{ { includeHtmlTags: false } }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Exa AI - LinkedIn Profile",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [450, 500],
+      "id": "exa-linkedin-profile",
+      "notes": "Get LinkedIn profile content"
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o-mini",
+        "options": {
+          "temperature": 0,
+          "maxTokens": 1080,
+          "responseFormat": "json_object"
+        },
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "SYSTEM CONTEXT\nYou are analyzing recruiter intelligence to identify decision-makers at third-party recruiting firms who have purchasing authority for lead generation services.INPUT DATA\n\nCompany name: {{ $json.companyName }}\nCompany website text: {{ $('Exa AI - Company Website').item.json.highlights }}\nLinkedIn profile data: {{ $('Exa AI - LinkedIn Profile').item.json.text }}\nJob title: {{ $json.jobPosterTitle }}\nCompany employee count: {{ $json.companyEmployeesCount }}"
+            },
+            {
+              "role": "user",
+              "content": "GOAL\nDetermine if this person is a DECISION-MAKER at a recruiter-for-hire company (someone with authority to purchase lead generation services).\n\nSTEP 1: VERIFY THIRD-PARTY RECRUITER\nFirst, confirm the company is a recruiter-for-hire using the original classification rules:\n✅ Set \"is_middleman\": true IF:\n\nMentions serving clients, employers, or hiring companies\nDescribes themselves as: \"recruiting firm\", \"staffing agency\", \"executive search\", \"headhunter\", \"RPO\", \"contingent search\", \"retained search\"\nOffers services to help companies hire or fill positions\nDescribes sourcing, screening, or placing candidates for external organizations\nMentions client case studies, client industries, or client success stories\n\n❌ Set \"is_middleman\": false IF:\n\nWorks in HR, talent acquisition, or internal recruiting for a single company\nSays \"we're hiring\", \"join our team\", \"careers at [company]\", or lists their own open positions\nIs a coach, resume writer, job board, ATS vendor, or career platform\nProvides virtual assistant services, consulting, or other non-recruiting services\nNo explicit evidence of recruiting for other companies\n\nIf \"is_middleman\": false → STOP and return:\njson\n{\n  \"is_middleman\": false,\n  \"is_decision_maker\": false,\n  \"reasoning\": \"string explaining what they actually do\"\n}\n\n\n---\n\n**STEP 2: EVALUATE DECISION-MAKER STATUS**\n\nIf confirmed as third-party recruiter, analyze whether this person is a decision-maker.\n\n**✅ Set \"is_decision_maker\": true IF:**\n\n**OWNERSHIP/FOUNDER INDICATORS:**\n- Title contains: \"Owner\", \"Founder\", \"Co-Founder\", \"Partner\", \"Principal\", \"Managing Partner\"\n- LinkedIn profile mentions founding/starting the company\n\n**C-SUITE/EXECUTIVE:**\n- Title contains: \"CEO\", \"President\", \"Chief Executive\", \"Managing Director\", \"Executive Director\"\n\n**SALES/BUSINESS DEVELOPMENT LEADERSHIP:**\n- Title contains: \"VP of Sales\", \"Sales Director\", \"Director of Business Development\", \"Head of Sales\", \"Chief Revenue Officer\", \"CRO\", \"VP Business Development\"\n- Title contains: \"Sales Manager\" AND company has ≤20 employees\n\n**SMALL FIRM EXCEPTIONS:**\n- Company has ≤10 employees AND title contains: \"Senior Recruiter\", \"Lead Recruiter\", \"Principal Recruiter\", \"Recruiting Manager\"\n- Company has ≤5 employees AND title is \"Recruiter\" (likely wearing multiple hats)\n\n**❌ Set \"is_decision_maker\": false IF:**\n\n**INDIVIDUAL CONTRIBUTOR RECRUITERS:**\n- Title is: \"Recruiter\", \"Senior Recruiter\", \"Executive Recruiter\", \"Technical Recruiter\", \"Talent Acquisition Specialist\"\n- Title contains: \"Associate\", \"Coordinator\", \"Sourcer\", \"Research\", \"Junior\"\n\n**NON-PURCHASING MANAGEMENT:**\n- Title contains: \"Recruiting Manager\", \"Team Lead\", \"Account Manager\" (unless explicitly \"Sales\" in title)\n- Operations, HR, or Administrative roles\n\n**IMPORTANT CONTEXT RULES:**\n1. **Company size matters**: At firms with 50+ employees, \"Recruiting Manager\" is unlikely a decision-maker. At firms with <10 employees, they might be.\n2. **Sales titles trump recruiting titles**: \"VP of Sales\" at a recruiting firm = decision-maker. \"VP of Recruiting\" = less likely.\n3. **When in doubt**: Err on the side of excluding non-decision-makers. We want purchasing authority, not just seniority.\n\n---\n\n**STEP 3: EXTRACT NICHE & ICP** (only if is_decision_maker = true)\n\n### **1. RECRUITMENT NICHE**\n\n**CRITICAL RULE: Industry specialization ALWAYS takes precedence over job level/function.**\n\nAnalyze the website text and LinkedIn profile in this priority order:\n\n**Priority 1: Look for INDUSTRY-SPECIFIC keywords:**\n- \"luxury\", \"hospitality\", \"hotel\", \"resort\", \"restaurant\", \"food & beverage\", \"casino\", \"travel\" → **\"hospitality recruiting\"**\n- \"accounting\", \"finance\", \"CFO\", \"controller\", \"CPA\", \"audit\", \"FP&A\", \"treasury\", \"investment\", \"hedge fund\", \"private equity\", \"banking\" → **\"finance recruiting\"**\n- \"software\", \"engineering\", \"AI\", \"SaaS\", \"developer\", \"cloud\", \"IT\", \"technology\", \"tech\", \"data science\" → **\"tech recruiting\"**\n- \"hospital\", \"nurse\", \"medical\", \"physician\", \"clinic\", \"healthcare\", \"pharma\", \"biotech\", \"medical device\" → **\"healthcare recruiting\"**\n- \"construction\", \"superintendent\", \"project manager\", \"trades\", \"field operations\", \"general contractor\", \"civil engineering\" → **\"construction recruiting\"**\n- \"manufacturing\", \"logistics\", \"warehouse\", \"supply chain\", \"operations\", \"industrial\", \"production\", \"distribution\" → **\"industrial recruiting\"**\n- \"legal\", \"attorney\", \"lawyer\", \"paralegal\", \"law firm\", \"in-house counsel\", \"litigation\" → **\"legal recruiting\"**\n- \"sales\", \"marketing\", \"creative\", \"advertising\", \"brand\", \"digital marketing\", \"agency\", \"media\" → **\"marketing recruiting\"**\n- \"retail\", \"store manager\", \"district manager\", \"merchandising\", \"e-commerce\" → **\"retail recruiting\"**\n- \"real estate\", \"property management\", \"commercial real estate\", \"residential\" → **\"real estate recruiting\"**\n\n**Priority 2: Only if NO industry is mentioned, look at job level:**\n- \"executive\", \"C-suite\", \"CEO\", \"board\", \"senior leadership\", \"VP\", \"director\" (with NO industry context) → **\"executive recruiting\"**\n\n**MULTI-INDUSTRY HANDLING:**\n- If they mention 2+ industries (e.g., \"luxury hospitality and finance\"), choose the FIRST or PRIMARY one mentioned\n- If equal weight, choose the more SPECIFIC one (e.g., \"hospitality recruiting\" is more specific than \"executive recruiting\")\n\n**Important:**\n- Be specific based on website text and LinkedIn profile\n- Review the actual keywords and phrases used in the website/LinkedIn data\n- Only use \"executive recruiting\" if there is truly no industry mentioned and they only talk about job levels\n- Only use \"professional recruiting\" if no specific industry OR job level focus is mentioned\n\n**Classification Priority Logic:**\n```\nIF (specific industry keywords found):\n    niche = [industry] + \"recruiting\"\nELSE IF (only executive/leadership level keywords, no industry):\n    niche = \"executive recruiting\"\nELSE:\n    niche = \"professional recruiting\"\n```\n\n**Examples:**\n\n\"executive search for luxury hotels\" → \"hospitality recruiting\" (NOT executive recruiting)\n\"C-suite placement in finance\" → \"finance recruiting\" (NOT executive recruiting)\n\"senior leadership across all industries\" → \"executive recruiting\" (no specific industry)\n\n\n**2. IDEAL CLIENT PROFILE (ICP)**\nBased on the SPECIFIC niche identified, determine the client type. Maximum 2-3 words.\nThe ICP must fit naturally in: \"are you looking for more [ICP] to work with?\"\nMapping by specific niche:\n\n- hospitality recruiting → \"luxury hotels\" / \"hotel groups\" / \"restaurant groups\" / \"resorts\"\n- finance recruiting → \"hedge funds\" / \"investment banks\" / \"pe firms\" / \"accounting firms\"\n- tech recruiting → \"saas companies\" / \"tech startups\" / \"software companies\"\n- healthcare recruiting → \"hospitals\" / \"health systems\" / \"medical practices\"\n- construction recruiting → \"general contractors\" / \"construction firms\"\n- marketing recruiting → \"marketing agencies\" / \"ad agencies\"\n- industrial recruiting → \"manufacturers\" / \"logistics companies\"\n- legal recruiting → \"law firms\" / \"legal departments\"\n- retail recruiting → \"retail chains\" / \"restaurant chains\"\n- real estate recruiting → \"real estate firms\" / \"property companies\"\n- executive recruiting → \"mid-sized companies\" / \"pe firms\" / \"growth companies\"\n- professional recruiting → \"companies hiring\"\n\n**ICP Selection Logic:**\n\n1. Match the ICP to the SPECIFIC niche you identified (not a generic fallback)\n2. Use context clues from the website (e.g., \"luxury\" + \"hospitality\" → \"luxury hotels\" not just \"hotels\")\n3. Choose the most common client type for that specific niche\n4. Never use \"mid-sized companies\" unless niche is truly \"executive recruiting\" with no industry focus\n\n**MULTI-INDUSTRY ICP HANDLING:**\nIf someone recruits for multiple industries, match the ICP to the PRIMARY niche:\n\nExample: If niche = \"hospitality recruiting\" → ICP = \"luxury hotels\" (NOT \"mid-sized companies\")\n\n\n**3. REASONING**\nProvide 2-3 sentences explaining:\n\n- Decision-maker status: Reference their specific title, company size, and why this indicates purchasing authority (or lack thereof)\n- Niche identification: Cite specific keywords, phrases, or evidence from the website text or LinkedIn profile that led you to identify their industry niche\n- ICP determination: Explain how the ICP matches their specific niche and client base\n\nExample reasoning structure:\n\"[Name] is the [Title] of [Company], indicating [clear/no] purchasing authority. The company's website/LinkedIn explicitly mentions [specific keywords/phrases about their focus], confirming their specialization in [niche]. The ideal client profile is [ICP] as they specifically target [description of client type] seeking [type of talent].\"\n\n**FINAL OUTPUT**\nIf NOT a third-party recruiter:\n```json\n{\n  \"is_middleman\": false,\n  \"is_decision_maker\": false,\n  \"reasoning\": \"string explaining what they actually do\"\n}\n```\nIf third-party recruiter but NOT a decision-maker:\n```json\n{\n  \"is_middleman\": true,\n  \"is_decision_maker\": false,\n  \"reasoning\": \"string explaining why they lack purchasing authority (reference title and company size)\"\n}\n```\nIf third-party recruiter AND decision-maker:\n```json\n{\n  \"is_middleman\": true,\n  \"is_decision_maker\": true,\n  \"recruitment_niche\": \"string\",\n  \"ideal_client_profile\": \"string (2-3 words max)\",\n  \"reasoning\": \"string\"\n}\n```\nReturn ONLY the JSON object. No commentary or additional text outside the JSON."
+            }
+          ]
+        }
+      },
+      "name": "OpenAI - QC ICP Fit",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [650, 300],
+      "id": "openai-qc-icp-fit",
+      "credentials": {
+        "openAiApi": {
+          "id": "YOUR_OPENAI_CREDENTIALS_ID",
+          "name": "OpenAI Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.is_middleman }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "leftValue": "={{ $json.is_decision_maker }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combineOperation": "all"
+        }
+      },
+      "name": "IF - True Fit",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [850, 300],
+      "id": "if-true-fit"
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o-mini",
+        "options": {
+          "temperature": 0.2,
+          "maxTokens": 256,
+          "responseFormat": "json_object"
+        },
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are a precise normalizer. You will always receive a company name, a job title, and a job location. Normalize all three and return exactly three lines, no labels, no quotes, no extra text:\nLine 1: normalized company name\nLine 2: normalized job title\nLine 3: normalized job location (U.S. state abbreviation only)\n\nCompany normalization rules:\n- Remove legal suffixes (llc, inc., co., pllc, ltd., corp., llp, plc, gmbh), commas, and periods around them.\n- If longer than 15 characters, shorten by keeping the most distinctive element (often from domain or description).\n- Preserve both names around \"&\" (e.g., \"Smith & Jones\").\n- If all caps, reformat to Capitalized Words.\n- Preserve brand casing when obvious (e.g., FOH, ValidiFI).\n\nJob title normalization rules:\n- Lowercase everything except approved abbreviations and proper capitalization:\n  • Vice President → VP\n  • Senior → Sr (capital S, lowercase r)\n  • Junior → Jr (capital J, lowercase r)\n  • Sales Development Representative → SDR\n  • Business Development Representative → BDR\n- Keep core role words, remove locations/schedules/noise (e.g., part-time, remote, city/state).\n- Keep domain qualifiers (accounts payable, accounts receivable, payroll, tax, controller, director of finance).\n- Normalize separators: slashes/dashes/parentheses → spaces.\n- Example outputs:\n  • Senior Accountant → Sr accountant\n  • Junior Accountant → Jr accountant\n  • Vice President of Finance → VP of finance\n  • Sales Development Representative → SDR\n  • Accounts Payable/Receivable Specialist → accounts payable receivable specialist\n  • Senior Financial Analyst → Sr financial analyst\n\nJob location normalization rules:\n- Convert full U.S. state names to two-letter USPS abbreviations (e.g., Connecticut → CT, Massachusetts → MA).\n- If city/county/region is included, ignore it — only return the state abbreviation.\n- If only a region like \"Greater Boston\" is given, use the correct state (Boston → MA).\n- If multiple states are implied (rare), choose the main one.\n\nOutput must always be three lines in this order:\n1. company\n2. job title\n3. state abbreviation\n\nOutput valid JSON only\n\nExample JSON output: \n{\n  \"company\": \"Mahaney\",\n  \"job_title\": \"Sr accountant\",\n  \"state\": \"CT\"\n}"
+            },
+            {
+              "role": "user",
+              "content": "Normalize the company name {{ $('Google Sheets - Filter Rows').item.json.companyName }}by just removing suffixes. Some examples are llc, co. and inc., pllc. etc. If it's longer than 15 characters shorten it by focusing on its most distinctive and memorable element, as it may be reflected in the company's domain {{ $('Google Sheets - Filter Rows').item.json.domain }}, and the company description {{ $('Google Sheets - Filter Rows').item.json.companyDescription }}. The goal is to identify the standout part of the name, while discarding generic terms. If there is a & symbol make sure to put all names. Reformat if input was all caps to be just first letter capitalized. Provide only the final normalized result.\n\nAlso normalize this job title: {{ $('Google Sheets - Filter Rows').item.json.title }}. Follow the job title normalization rules from the system message and provide only the final normalized result.\n- IMPORTANT: \"Senior\" becomes \"Sr\" (capital S, lowercase r)\n- IMPORTANT: \"Junior\" becomes \"Jr\" (capital J, lowercase r)\n- All other words should be lowercase except for abbreviations like VP, SDR, BDR\n\nAlso normalize this job location: {{ $('Google Sheets - Filter Rows').item.json.location }}. Convert to a two-letter U.S. state abbreviation only.\n\nReturn exactly three lines total:\nLine 1: the normalized company\nLine 2: the normalized job title  \nLine 3: the state abbreviation\n\nOutput valid JSON only in this format:\n{\n  \"company\": \"normalized company name\",\n  \"job_title\": \"normalized job title\",\n  \"state\": \"XX\"\n}"
+            }
+          ]
+        }
+      },
+      "name": "OpenAI - Company Name Normalizer",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [1050, 200],
+      "id": "openai-company-normalizer",
+      "credentials": {
+        "openAiApi": {
+          "id": "YOUR_OPENAI_CREDENTIALS_ID",
+          "name": "OpenAI Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o-mini",
+        "options": {
+          "temperature": 0.2,
+          "maxTokens": 256,
+          "responseFormat": "json_object"
+        },
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "System: You are a email subject line generator.Your job:\n\nCreate a 3-word maximum subject line for an outreach email\nThe subject line must communicate: getting the recipient's company introductions to their ideal client profile (ICP)\nUse clear, direct language that immediately conveys value\nCRITICAL: Output in all lowercase - no capital letters anywhere\nOutput format:\njson\n{\n  \"subject_line\": \"string\"\n}\nOutput ONLY the JSON object. No commentary or additional text."
+            },
+            {
+              "role": "user",
+              "content": "User: Generate a subject line for the following recipient:\nCompany name: {{ $('Google Sheets - Filter Rows').item.json.companyName }}\nRecruitment niche: {{ $('OpenAI - QC ICP Fit').item.json.recruitment_niche }}\nIdeal client profile (ICP): {{ $('OpenAI - QC ICP Fit').item.json.ideal_client_profile }}\n\nSUBJECT LINE REQUIREMENTS\nStructure:\nThe subject line should follow this formula:\n[ICP] + [Action/Benefit]\nExamples:\n\n\"franchisor intros\"\n\"saas introductions\"\n\"hedge fund leads\"\n\"hospital connections\"\n\"contractor intros\"\n\"law firm intros\"\n\nRules:\n\nMaximum 3 words (no exceptions)\nFirst word(s): Reference their ideal client profile in 1-2 words\n\nUse the most specific, recognizable term from their ICP\nExamples: \"franchisor\", \"saas\", \"hedge fund\", \"hospital\", \"contractor\", \"law firm\"\n\n\nLast word: Action word that implies introductions/connections\n\nPreferred words: \"intros\", \"introductions\", \"leads\", \"connections\"\n\n\nNo punctuation (no periods, exclamation marks, or question marks)\nCRITICAL: All lowercase - every single letter must be lowercase, including the first letter\n\nICP Simplification Guide:\nSimplify the ideal client profile to 1-2 words (all lowercase):\n\n\"franchisors\" → \"franchisor\"\n\"SaaS companies\" → \"saas\"\n\"hedge funds\" → \"hedge fund\"\n\"accounting firms\" → \"accounting firm\"\n\"general contractors\" → \"contractor\"\n\"hospitals\" → \"hospital\"\n\"tech startups\" → \"tech startup\"\n\"law firms\" → \"law firm\"\n\"private equity firms\" → \"pe firm\"\n\"companies hiring\" → \"company\"\n\nChoose the shortest, most recognizable version that will resonate with the recipient.\n\nEXAMPLES\nExample 1:\nInput:\n\nCompany: Careertopia Executive Search\nNiche: franchise recruiting\nICP: franchisors\n\nOutput:\njson\n{\n  \"subject_line\": \"franchisor intros\"\n}\nExample 2:\nInput:\n\nCompany: Tech Talent Partners\nNiche: tech recruiting\nICP: saas companies\n\nOutput:\njson\n{\n  \"subject_line\": \"saas introductions\"\n}\nExample 3:\nInput:\n\nCompany: Finance Recruiting Group\nNiche: finance recruiting\nICP: hedge funds\n\nOutput:\njson\n{\n  \"subject_line\": \"hedge fund leads\"\n}\nExample 4:\nInput:\n\nCompany: Morgan Wentworth Legal Recruiting\nNiche: legal recruiting\nICP: law firms\n\nOutput:\njson\n{\n  \"subject_line\": \"law firm intros\"\n}\nExample 5:\nInput:\n\nCompany: General Staffing Solutions\nNiche: professional recruiting\nICP: companies hiring\n\nOutput:\njson\n{\n  \"subject_line\": \"company intros\"\n}\n\nReturn ONLY the JSON object with the subject line in all lowercase. No additional text."
+            }
+          ]
+        }
+      },
+      "name": "OpenAI - Subject Line",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [1050, 400],
+      "id": "openai-subject-line",
+      "credentials": {
+        "openAiApi": {
+          "id": "YOUR_OPENAI_CREDENTIALS_ID",
+          "name": "OpenAI Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o-mini",
+        "options": {
+          "temperature": 0.7,
+          "maxTokens": 1080,
+          "responseFormat": "json_object"
+        },
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are a powerful, helpful and highly intelligent system."
+            },
+            {
+              "role": "user",
+              "content": "You are a name-cleaning and classification assistant. Your job is to analyze a single input string containing a name and return a structured JSON object that separates first and last name while handling initials, missing parts, or fake/company names.\n\n### RULES\n1. Remove any credentials, suffixes, or titles (CPA, MBA, Esq, PhD, RN, SHRM-CP, PMP, CMPE, etc.).\n2. Remove emojis, decorative symbols, or unusual characters (✮, ★, ☀, etc.).\n3. If parentheses appear (like '(Napier)'), keep only the main name outside parentheses.\n4. If there is a comma, assume text after the comma is credentials or titles — remove it.\n5. Normalize capitalization (e.g., 'sarah hefner' → 'Sarah Hefner').\n6. **Handle initials correctly:**\n   - If input is only one word and it's a single letter (e.g., 'K.'), treat as initial only.\n   - If input has one full name and one initial (e.g., 'John K.'), output `first_name: 'John'`, `last_name: 'K'`.\n   - If both first and last are initials (e.g., 'J. K.'), output both initials separately.\n   - If only one full name (e.g., 'Roxanne'), output it as `first_name` and leave `last_name` blank.\n7. If the name looks like a company or organization (contains 'LLC', 'Inc', 'Group', 'Company', 'Corp', 'LLP', etc.), set `is_person` to false.\n8. Never invent new information. Use only what is present in the input.\n9. Always return valid JSON exactly in the format shown below — no markdown or text outside the JSON.\n\n### OUTPUT FORMAT (STRICT JSON)\nFor a person:\n```json\n{\n  \"is_person\": true,\n  \"first_name\": \"John\",\n  \"last_name\": \"Doe\",\n  \"reason\": \"Cleaned and separated name, removed credentials\"\n}\n```\nIf not a person:\n```json\n{\n  \"is_person\": false,\n  \"first_name\": \"\",\n  \"last_name\": \"\",\n  \"reason\": \"Detected company or non-human entity\"\n}\n```\n\n### EXAMPLES\nInput: \"Susan Story, MHRM, SHRM-SCP\" → {\"is_person\": true, \"first_name\": \"Susan\", \"last_name\": \"Story\", \"reason\": \"Removed credentials\"}\nInput: \"John K.\" → {\"is_person\": true, \"first_name\": \"John\", \"last_name\": \"K\", \"reason\": \"Detected initial for last name\"}\nInput: \"K.\" → {\"is_person\": true, \"first_name\": \"K\", \"last_name\": \"\", \"reason\": \"Single initial only\"}\nInput: \"Roxanne M.\" → {\"is_person\": true, \"first_name\": \"Roxanne\", \"last_name\": \"M\", \"reason\": \"Detected partial last name initial\"}\nInput: \"J. K.\" → {\"is_person\": true, \"first_name\": \"J\", \"last_name\": \"K\", \"reason\": \"Both names are initials\"}\nInput: \"BlueSky Consulting LLC\" → {\"is_person\": false, \"first_name\": \"\", \"last_name\": \"\", \"reason\": \"Company suffix detected\"}\n\n### INPUT\n{{ $('Google Sheets - Filter Rows').item.json.jobPosterName }}\n\n### OUTPUT\nReturn one valid JSON object in the exact format shown above — no markdown, explanations, or extra text."
+            }
+          ]
+        }
+      },
+      "name": "OpenAI - Normalize Name",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [1050, 600],
+      "id": "openai-normalize-name",
+      "credentials": {
+        "openAiApi": {
+          "id": "YOUR_OPENAI_CREDENTIALS_ID",
+          "name": "OpenAI Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://api.leadmagic.io/v1/people/email-finder",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "0d98d6f54a09045f887264696c3a8ed4"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "first_name",
+              "value": "={{ $('OpenAI - Normalize Name').item.json.first_name }}"
+            },
+            {
+              "name": "last_name",
+              "value": "={{ $('OpenAI - Normalize Name').item.json.last_name }}"
+            },
+            {
+              "name": "domain",
+              "value": "={{ $('Google Sheets - Filter Rows').item.json.domain }}"
+            },
+            {
+              "name": "company_name",
+              "value": "={{ $('Google Sheets - Filter Rows').item.json.companyName }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "HTTP - Email Finder",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1250, 300],
+      "id": "http-email-finder"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.data.status }}",
+              "rightValue": "valid",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "leftValue": "={{ $('OpenAI - QC ICP Fit').item.json.is_middleman }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combineOperation": "all"
+        }
+      },
+      "name": "IF - Valid Email",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1450, 300],
+      "id": "if-valid-email"
+    },
+    {
+      "parameters": {
+        "url": "https://api.instantly.ai/api/v1/lead/add",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "api_key",
+              "value": "YOUR_INSTANTLY_API_KEY"
+            },
+            {
+              "name": "campaign_id",
+              "value": "5f78c538-f946-4335-bd7c-e0c68dc8fed0"
+            },
+            {
+              "name": "email",
+              "value": "={{ $('HTTP - Email Finder').item.json.data.email }}"
+            },
+            {
+              "name": "first_name",
+              "value": "={{ $('OpenAI - Normalize Name').item.json.first_name }}"
+            },
+            {
+              "name": "last_name",
+              "value": "={{ $('OpenAI - Normalize Name').item.json.last_name }}"
+            },
+            {
+              "name": "company_name",
+              "value": "={{ $('OpenAI - Company Name Normalizer').item.json.company }}"
+            },
+            {
+              "name": "website",
+              "value": "={{ $('Google Sheets - Filter Rows').item.json.companyWebsite }}"
+            },
+            {
+              "name": "skip_if_in_workspace",
+              "value": "true"
+            },
+            {
+              "name": "skip_if_in_campaign",
+              "value": "true"
+            },
+            {
+              "name": "skip_if_in_list",
+              "value": "true"
+            },
+            {
+              "name": "custom_variables",
+              "value": "={{ { niche: $('OpenAI - QC ICP Fit').item.json.recruitment_niche, icp: $('OpenAI - QC ICP Fit').item.json.ideal_client_profile, 'subject line': $('OpenAI - Subject Line').item.json.subject_line, job_title_short: $('OpenAI - Company Name Normalizer').item.json.job_title } }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Instantly - Create Lead",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1650, 200],
+      "id": "instantly-create-lead"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1PNEVqUFcPLoWbbkP9BwJ4arIKlrP8ZO0SknKAYMQThU",
+          "mode": "list",
+          "cachedResultName": "Staffing With Posted Jobs"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "list",
+          "cachedResultName": "Sheet1"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "email": "={{ $('HTTP - Email Finder').item.json.data.email }}",
+            "email status": "={{ $('HTTP - Email Finder').item.json.data.status }}",
+            "recruiter": "={{ $('OpenAI - QC ICP Fit').item.json.is_middleman }}",
+            "reason": "={{ $('OpenAI - QC ICP Fit').item.json.reasoning }}",
+            "niche": "={{ $('OpenAI - QC ICP Fit').item.json.recruitment_niche }}",
+            "icp": "={{ $('OpenAI - QC ICP Fit').item.json.ideal_client_profile }}",
+            "decision Maker": "={{ $('OpenAI - QC ICP Fit').item.json.is_decision_maker }}",
+            "company name short": "={{ $('OpenAI - Company Name Normalizer').item.json.company }}",
+            "job title short": "={{ $('OpenAI - Company Name Normalizer').item.json.job_title }}",
+            "first name": "={{ $('OpenAI - Normalize Name').item.json.first_name }}",
+            "last name": "={{ $('OpenAI - Normalize Name').item.json.last_name }}",
+            "date added": "={{ $now.format('MM-DD-YYYY') }}",
+            "campaign": "={{ $('Instantly - Create Lead').item.json.campaign }}"
+          }
+        },
+        "options": {
+          "valueInputMode": "USER_ENTERED"
+        }
+      },
+      "name": "Google Sheets - Update Valid",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1850, 200],
+      "id": "google-sheets-update-valid",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YOUR_GOOGLE_CREDENTIALS_ID",
+          "name": "Google Sheets Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1PNEVqUFcPLoWbbkP9BwJ4arIKlrP8ZO0SknKAYMQThU",
+          "mode": "list",
+          "cachedResultName": "Staffing With Posted Jobs"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "list",
+          "cachedResultName": "Sheet1"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "email status": "={{ $('HTTP - Email Finder').item.json.data.message }}",
+            "recruiter": "={{ $('OpenAI - QC ICP Fit').item.json.is_middleman }}",
+            "reason": "={{ $('OpenAI - QC ICP Fit').item.json.reasoning }}",
+            "niche": "={{ $('OpenAI - QC ICP Fit').item.json.recruitment_niche }}",
+            "icp": "={{ $('OpenAI - QC ICP Fit').item.json.ideal_client_profile }}",
+            "decision Maker": "={{ $('OpenAI - QC ICP Fit').item.json.is_decision_maker }}",
+            "company name short": "={{ $('OpenAI - Company Name Normalizer').item.json.company }}",
+            "job title short": "={{ $('OpenAI - Company Name Normalizer').item.json.job_title }}",
+            "first name": "={{ $('OpenAI - Normalize Name').item.json.first_name }}",
+            "last name": "={{ $('OpenAI - Normalize Name').item.json.last_name }}"
+          }
+        },
+        "options": {
+          "valueInputMode": "USER_ENTERED"
+        }
+      },
+      "name": "Google Sheets - Update Invalid",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1650, 400],
+      "id": "google-sheets-update-invalid",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YOUR_GOOGLE_CREDENTIALS_ID",
+          "name": "Google Sheets Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1PNEVqUFcPLoWbbkP9BwJ4arIKlrP8ZO0SknKAYMQThU",
+          "mode": "list",
+          "cachedResultName": "Staffing With Posted Jobs"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "list",
+          "cachedResultName": "Sheet1"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "recruiter": "={{ $('OpenAI - QC ICP Fit').item.json.is_middleman }}",
+            "reason": "={{ $('OpenAI - QC ICP Fit').item.json.reasoning }}",
+            "niche": "={{ $('OpenAI - QC ICP Fit').item.json.recruitment_niche }}",
+            "icp": "={{ $('OpenAI - QC ICP Fit').item.json.ideal_client_profile }}",
+            "decision Maker": "={{ $('OpenAI - QC ICP Fit').item.json.is_decision_maker }}"
+          }
+        },
+        "options": {
+          "valueInputMode": "USER_ENTERED"
+        }
+      },
+      "name": "Google Sheets - Update Not Fit",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1050, 100],
+      "id": "google-sheets-update-not-fit",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YOUR_GOOGLE_CREDENTIALS_ID",
+          "name": "Google Sheets Account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Google Sheets - Filter Rows": {
+      "main": [
+        [
+          {
+            "node": "Exa AI - Company Website",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Exa AI - LinkedIn Profile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Exa AI - Company Website": {
+      "main": [
+        [
+          {
+            "node": "OpenAI - QC ICP Fit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Exa AI - LinkedIn Profile": {
+      "main": [
+        [
+          {
+            "node": "OpenAI - QC ICP Fit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI - QC ICP Fit": {
+      "main": [
+        [
+          {
+            "node": "IF - True Fit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - True Fit": {
+      "main": [
+        [
+          {
+            "node": "OpenAI - Company Name Normalizer",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "OpenAI - Subject Line",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "OpenAI - Normalize Name",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Google Sheets - Update Not Fit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI - Company Name Normalizer": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Email Finder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI - Subject Line": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Email Finder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI - Normalize Name": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Email Finder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Email Finder": {
+      "main": [
+        [
+          {
+            "node": "IF - Valid Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Valid Email": {
+      "main": [
+        [
+          {
+            "node": "Instantly - Create Lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Google Sheets - Update Invalid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Instantly - Create Lead": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - Update Valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2025-01-20T00:00:00.000Z",
+  "versionId": "1"
+}
