@@ -1,0 +1,568 @@
+{
+  "name": "Candidate Routing & CRM Update",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start-node",
+      "name": "Start",
+      "type": "n8n-nodes-base.start",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "mode": "multiplex",
+        "output": "input"
+      },
+      "id": "main-router",
+      "name": "Route by Pass Status & PCR Existence",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.ai_analysis.pass }}",
+              "operation": "notEquals",
+              "value2": "true"
+            }
+          ]
+        }
+      },
+      "id": "not-fit-filter",
+      "name": "Not A Fit",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [650, 100]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.ai_analysis.pass }}",
+              "operation": "equals",
+              "value2": "true"
+            }
+          ],
+          "boolean": [
+            {
+              "value1": "={{ $json.pcr_candidate_id === undefined || $json.pcr_candidate_id === null || $json.pcr_candidate_id === '' }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "fit-not-in-pcr-filter",
+      "name": "Fit and Not in PCR",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.ai_analysis.pass }}",
+              "operation": "equals",
+              "value2": "true"
+            }
+          ],
+          "boolean": [
+            {
+              "value1": "={{ $json.pcr_candidate_id !== undefined && $json.pcr_candidate_id !== null && $json.pcr_candidate_id !== '' }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "fit-in-pcr-filter",
+      "name": "Fit and In PCR",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [650, 500]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.pcr_candidate_id === undefined || $json.pcr_candidate_id === null || $json.pcr_candidate_id === '' }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "not-fit-pcr-check",
+      "name": "Check if New Candidate",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [850, 100]
+    },
+    {
+      "parameters": {
+        "url": "https://www2.pcrecruiter.net/rest/api/candidates",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.pcr_session_id }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": []
+        },
+        "options": {
+          "bodyContentType": "raw",
+          "rawBody": "={\n  \"FirstName\": \"{{ $json.first_name }}\",\n  \"LastName\": \"{{ $json.last_name }}\",\n  \"Title\": \"{{ $json.title }}\",\n  \"CompanyName\": \"{{ $json.organization_name }}\",\n  \"EmailAddress\": \"{{ $json.pcr_email }}\",\n  \"School\": \"{{ $json.ai_analysis.degree_school_latest }}\",\n  \"DegreeType\": \"{{ $json.ai_analysis.degree_type_latest }}\",\n  \"GradYear\": \"{{ $json.ai_analysis.graduation_year_latest }}\",\n  \"Summary\": \"{{ $json.ai_analysis.ai_summary }}\",\n  \"Keywords\": \"{{ $json.ai_analysis.company_1_specialties_csv }} {{ $json.ai_analysis.company_2_specialties_csv }} {{ $json.ai_analysis.company_3_specialties_csv }}\",\n  \"LastModified\": \"{{ $now.format('MM-DD-YYYY') }}\",\n  \"CustomFields\": [\n    { \"FieldName\": \"apollo_email\", \"Values\": [\"{{ $json.email }}\"] },\n    { \"FieldName\": \"personal_email\", \"Values\": [\"{{ $json.personal_email }}\"] },\n    { \"FieldName\": \"emails_verified\", \"Values\": [\"No\"] },\n    { \"FieldName\": \"licenses_certs_csv\", \"Values\": [\"{{ $json.ai_analysis.licenses_and_certifications_csv }}\"] },\n    { \"FieldName\": \"company_1\", \"Values\": [\"{{ $json.ai_analysis.company_1_name }} | {{ $json.ai_analysis.company_1_title }} | {{ $json.ai_analysis.company_1_start_date }}-{{ $json.ai_analysis.company_1_end_date }}\"] },\n    { \"FieldName\": \"company_2\", \"Values\": [\"{{ $json.ai_analysis.company_2_name }} | {{ $json.ai_analysis.company_2_title }} | {{ $json.ai_analysis.company_2_start_date }}-{{ $json.ai_analysis.company_2_end_date }}\"] },\n    { \"FieldName\": \"company_3\", \"Values\": [\"{{ $json.ai_analysis.company_3_name }} | {{ $json.ai_analysis.company_3_title }} | {{ $json.ai_analysis.company_3_start_date }}-{{ $json.ai_analysis.company_3_end_date }}\"] },\n    { \"FieldName\": \"linkedin_url\", \"Values\": [\"{{ $json.linkedin_url }}\"] },\n    { \"FieldName\": \"needs_verification\", \"Values\": [\"{{ $json.ai_analysis.needs_verification }}, {{ $json.ai_analysis.verification_reasons_csv }}\"] }\n  ]\n}"
+        }
+      },
+      "id": "add-not-fit-pcr",
+      "name": "Add Not Fit to PCRecruiter",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1050, 50]
+    },
+    {
+      "parameters": {
+        "url": "=https://www2.pcrecruiter.net/rest/api/candidates/{{ $json.pcr_candidate_id }}",
+        "method": "PUT",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.pcr_session_id }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "options": {
+          "bodyContentType": "raw",
+          "rawBody": "={\n  \"Title\": \"{{ $json.title }}\",\n  \"CompanyName\": \"{{ $json.organization_name }}\",\n  \"EmailAddress\": \"{{ $json.pcr_email }}\",\n  \"School\": \"{{ $json.ai_analysis.degree_school_latest }}\",\n  \"DegreeType\": \"{{ $json.ai_analysis.degree_type_latest }}\",\n  \"GradYear\": \"{{ $json.ai_analysis.graduation_year_latest }}\",\n  \"Summary\": \"{{ $json.ai_analysis.ai_summary }}\",\n  \"Keywords\": \"{{ $json.ai_analysis.company_specialties_csv }}\",\n  \"LastModified\": \"{{ $now.format('MM-DD-YYYY') }}\",\n  \"CustomFields\": [\n    { \"FieldName\": \"apollo_email\", \"Values\": [\"{{ $json.email }}\"] },\n    { \"FieldName\": \"personal_email\", \"Values\": [\"{{ $json.personal_email }}\"] },\n    { \"FieldName\": \"emails_verified\", \"Values\": [\"No\"] },\n    { \"FieldName\": \"licenses_certs_csv\", \"Values\": [\"{{ $json.ai_analysis.licenses_csv }}\"] },\n    { \"FieldName\": \"company_1\", \"Values\": [\"{{ $json.ai_analysis.company_1_name }} | {{ $json.ai_analysis.company_1_title }} | {{ $json.ai_analysis.company_1_history }}\"] },\n    { \"FieldName\": \"company_2\", \"Values\": [\"{{ $json.ai_analysis.company_2_name }} | {{ $json.ai_analysis.company_2_title }} | {{ $json.ai_analysis.company_2_history }}\"] },\n    { \"FieldName\": \"company_3\", \"Values\": [\"{{ $json.ai_analysis.company_3_name }} | {{ $json.ai_analysis.company_3_title }} | {{ $json.ai_analysis.company_3_history }}\"] },\n    { \"FieldName\": \"linkedin_url\", \"Values\": [\"{{ $json.linkedin_url }}\"] },\n    { \"FieldName\": \"needs_verification\", \"Values\": [\"{{ $json.ai_analysis.needs_verification }}, {{ $json.ai_analysis.verification_reasons_csv }}\"] }\n  ]\n}"
+        }
+      },
+      "id": "update-not-fit-pcr",
+      "name": "Update Not Fit in PCRecruiter",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1050, 150]
+    },
+    {
+      "parameters": {
+        "url": "https://www2.pcrecruiter.net/rest/api/candidates",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.pcr_session_id }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "options": {
+          "bodyContentType": "raw",
+          "rawBody": "={\n  \"FirstName\": \"{{ $json.first_name }}\",\n  \"LastName\": \"{{ $json.last_name }}\",\n  \"Title\": \"{{ $json.title }}\",\n  \"CompanyName\": \"{{ $json.organization_name }}\",\n  \"EmailAddress\": \"{{ $json.pcr_email }}\",\n  \"School\": \"{{ $json.ai_analysis.degree_school_latest }}\",\n  \"DegreeType\": \"{{ $json.ai_analysis.degree_type_latest }}\",\n  \"GradYear\": \"{{ $json.ai_analysis.graduation_year_latest }}\",\n  \"Summary\": \"{{ $json.ai_analysis.ai_summary }}\",\n  \"Keywords\": \"{{ $json.ai_analysis.company_1_specialties_csv }} {{ $json.ai_analysis.company_2_specialties_csv }} {{ $json.ai_analysis.company_3_specialties_csv }}\",\n  \"LastModified\": \"{{ $now.format('MM-DD-YYYY') }}\",\n  \"CustomFields\": [\n    { \"FieldName\": \"apollo_email\", \"Values\": [\"{{ $json.email }}\"] },\n    { \"FieldName\": \"personal_email\", \"Values\": [\"{{ $json.personal_email }}\"] },\n    { \"FieldName\": \"emails_verified\", \"Values\": [\"No\"] },\n    { \"FieldName\": \"licenses_certs_csv\", \"Values\": [\"{{ $json.ai_analysis.licenses_and_certifications_csv }}\"] },\n    { \"FieldName\": \"company_1\", \"Values\": [\"{{ $json.ai_analysis.company_1_name }} | {{ $json.ai_analysis.company_1_title }} | {{ $json.ai_analysis.company_1_start_date }}-{{ $json.ai_analysis.company_1_end_date }}\"] },\n    { \"FieldName\": \"company_2\", \"Values\": [\"{{ $json.ai_analysis.company_2_name }} | {{ $json.ai_analysis.company_2_title }} | {{ $json.ai_analysis.company_2_start_date }}-{{ $json.ai_analysis.company_2_end_date }}\"] },\n    { \"FieldName\": \"company_3\", \"Values\": [\"{{ $json.ai_analysis.company_3_name }} | {{ $json.ai_analysis.company_3_title }} | {{ $json.ai_analysis.company_3_start_date }}-{{ $json.ai_analysis.company_3_end_date }}\"] },\n    { \"FieldName\": \"linkedin_url\", \"Values\": [\"{{ $json.linkedin_url }}\"] },\n    { \"FieldName\": \"needs_verification\", \"Values\": [\"{{ $json.ai_analysis.needs_verification }}, {{ $json.ai_analysis.verification_reasons_csv }}\"] }\n  ]\n}"
+        }
+      },
+      "id": "add-fit-pcr",
+      "name": "Add Fit Candidate to PCRecruiter",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://www2.pcrecruiter.net/rest/api/candidates/rolluplists/{{ $json.rollup_list }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.pcr_session_id }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "options": {
+          "bodyContentType": "raw",
+          "rawBody": "={\n  \"CandidateId\": \"{{ $json.CandidateId }}\"\n}"
+        }
+      },
+      "id": "add-to-rollup-fit-new",
+      "name": "Add to Rollup List (New)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $json.google_sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "={{ $json.search_name }}",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Date": "={{ $now.format('MM-DD-YYYY') }}",
+            "PCR Internal ID": "={{ $json.CandidateId }}",
+            "Name": "={{ $json.name }}",
+            "First Name": "={{ $json.first_name }}",
+            "Last Name": "={{ $json.last_name }}",
+            "Title": "={{ $json.title }}",
+            "Company": "={{ $json.organization_name }}",
+            "Time at Company": "={{ $json.ai_analysis.company_1_start_date }}-{{ $json.ai_analysis.company_1_end_date }}",
+            "City": "={{ $json.city }}",
+            "State": "={{ $json.state }}",
+            "Work Email": "={{ $json.email }}",
+            "PCR Email": "={{ $json.pcr_email }}",
+            "PCR Home #": "={{ $json.pcr_home }}",
+            "PCR Mobile #": "={{ $json.pcr_mobile }}",
+            "LinkedIn URL": "={{ $json.linkedin_url }}",
+            "Headline": "={{ $json.headline }}",
+            "Degree Type": "={{ $json.ai_analysis.degree_type_latest }}",
+            "Grad Year": "={{ $json.ai_analysis.graduation_year_latest }}",
+            "Latest School": "={{ $json.ai_analysis.degree_school_latest }}",
+            "Certifications": "={{ $json.ai_analysis.licenses_and_certifications_csv }}",
+            "Sourced From": "LinkedIn",
+            "Company 1": "=Name: {{ $json.ai_analysis.company_1_name }}\nTitle: {{ $json.ai_analysis.company_1_title }}\nTenure: {{ $json.ai_analysis.company_1_start_date }}-{{ $json.ai_analysis.company_1_end_date }}\nKeywords: {{ $json.ai_analysis.company_1_specialties_csv }}",
+            "Company 2": "=Name: {{ $json.ai_analysis.company_2_name }}\nTitle: {{ $json.ai_analysis.company_2_title }}\nTenure: {{ $json.ai_analysis.company_2_start_date }}-{{ $json.ai_analysis.company_2_end_date }}\nKeywords: {{ $json.ai_analysis.company_2_specialties_csv }}",
+            "Company 3": "=Name: {{ $json.ai_analysis.company_3_name }}\nTitle: {{ $json.ai_analysis.company_3_title }}\nTenure: {{ $json.ai_analysis.company_3_start_date }}-{{ $json.ai_analysis.company_3_end_date }}\nKeywords: {{ $json.ai_analysis.company_3_specialties_csv }}",
+            "Specialties": "={{ $json.ai_analysis.company_1_specialties_csv }},{{ $json.ai_analysis.company_2_specialties_csv }},{{ $json.ai_analysis.company_3_specialties_csv }}",
+            "Final Score": "={{ $json.ai_analysis.final_score }}",
+            "Pass": "={{ $json.ai_analysis.pass }}",
+            "Education": "={{ $json.ai_analysis.education_ok }}",
+            "Min Experience": "={{ $json.ai_analysis.meets_min_experience }}",
+            "Needs Verification": "={{ $json.ai_analysis.needs_verification }}",
+            "Verification Reasons": "={{ $json.ai_analysis.verification_reasons_csv }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "add-to-sheets-fit-new",
+      "name": "Add to Google Sheets (New)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://hook.us2.make.com/xvnpq5eiu7k486slvj1vbk4kwrs52re9",
+        "sendBody": true,
+        "options": {
+          "bodyContentType": "raw",
+          "rawBody": "={\n  \"spreadsheet_ID\": \"{{ $json.google_sheet_id }}\",\n  \"sheet\": \"{{ $json.search_name }}\",\n  \"row_number\": \"\",\n  \"email\": \"{{ $json.email }}\",\n  \"PCR_email\": \"{{ $json.pcr_email }}\",\n  \"domain\": \"{{ $json.organization_domain }}\",\n  \"school\": \"{{ $json.ai_analysis.degree_school_latest }}\",\n  \"degree_type\": \"{{ $json.ai_analysis.degree_type_latest }}\",\n  \"grad_year\": \"{{ $json.ai_analysis.graduation_year_latest }}\",\n  \"licenses_and_certifications_csv\": \"{{ $json.ai_analysis.licenses_and_certifications_csv }}\",\n  \"company_1_name\": \"{{ $json.ai_analysis.company_1_name }}\",\n  \"company_1_specialties_csv\": \"{{ $json.ai_analysis.company_1_specialties_csv }}\",\n  \"company_2_name\": \"{{ $json.ai_analysis.company_2_name }}\",\n  \"company_2_specialties_csv\": \"{{ $json.ai_analysis.company_2_specialties_csv }}\",\n  \"company_3_name\": \"{{ $json.ai_analysis.company_3_name }}\",\n  \"company_3_specialties_csv\": \"{{ $json.ai_analysis.company_3_specialties_csv }}\",\n  \"pcr_candidate_id\": \"{{ $json.pcr_candidate_id }}\",\n  \"pcr_last_synced_at\": \"{{ $json.pcr_last_synced }}\",\n  \"pcr_session_id\": \"{{ $json.pcr_session_id }}\",\n  \"DataStore_id\": \"{{ $json.id }}\"\n}"
+        }
+      },
+      "id": "send-to-verify-fit-new",
+      "name": "Send to Verify (New)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1450, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://www2.pcrecruiter.net/rest/api/candidates/{{ $json.pcr_candidate_id }}",
+        "method": "PUT",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.pcr_session_id }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "options": {
+          "bodyContentType": "raw",
+          "rawBody": "={\n  \"Title\": \"{{ $json.title }}\",\n  \"CompanyName\": \"{{ $json.organization_name }}\",\n  \"EmailAddress\": \"{{ $json.pcr_email }}\",\n  \"School\": \"{{ $json.ai_analysis.degree_school_latest }}\",\n  \"DegreeType\": \"{{ $json.ai_analysis.degree_type_latest }}\",\n  \"GradYear\": \"{{ $json.ai_analysis.graduation_year_latest }}\",\n  \"Summary\": \"{{ $json.ai_analysis.ai_summary }}\",\n  \"Keywords\": \"{{ $json.ai_analysis.company_1_specialties_csv }},{{ $json.ai_analysis.company_2_specialties_csv }},{{ $json.ai_analysis.company_3_specialties_csv }}\",\n  \"LastModified\": \"{{ $now.format('MM-DD-YYYY') }}\",\n  \"CustomFields\": [\n    { \"FieldName\": \"apollo_email\", \"Values\": [\"{{ $json.email }}\"] },\n    { \"FieldName\": \"personal_email\", \"Values\": [\"{{ $json.personal_email }}\"] },\n    { \"FieldName\": \"emails_verified\", \"Values\": [\"No\"] },\n    { \"FieldName\": \"licenses_certs_csv\", \"Values\": [\"{{ $json.ai_analysis.licenses_csv }}\"] },\n    { \"FieldName\": \"company_1\", \"Values\": [\"{{ $json.ai_analysis.company_1_name }} | {{ $json.ai_analysis.company_1_title }} | {{ $json.ai_analysis.company_1_history }}\"] },\n    { \"FieldName\": \"company_2\", \"Values\": [\"{{ $json.ai_analysis.company_2_name }} | {{ $json.ai_analysis.company_2_title }} | {{ $json.ai_analysis.company_2_history }}\"] },\n    { \"FieldName\": \"company_3\", \"Values\": [\"{{ $json.ai_analysis.company_3_name }} | {{ $json.ai_analysis.company_3_title }} | {{ $json.ai_analysis.company_3_history }}\"] },\n    { \"FieldName\": \"linkedin_url\", \"Values\": [\"{{ $json.linkedin_url }}\"] },\n    { \"FieldName\": \"needs_verification\", \"Values\": [\"{{ $json.ai_analysis.needs_verification }}, {{ $json.ai_analysis.verification_reasons_csv }}\"] }\n  ]\n}"
+        }
+      },
+      "id": "update-fit-pcr",
+      "name": "Update Fit Candidate in PCRecruiter",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [850, 500]
+    },
+    {
+      "parameters": {
+        "url": "=https://www2.pcrecruiter.net/rest/api/candidates/rolluplists/{{ $json.rollup_list }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.pcr_session_id }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "options": {
+          "bodyContentType": "raw",
+          "rawBody": "={\n  \"CandidateId\": \"{{ $json.CandidateId }}\"\n}"
+        }
+      },
+      "id": "add-to-rollup-fit-existing",
+      "name": "Add to Rollup List (Existing)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1050, 500]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $json.google_sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "={{ $json.search_name }}",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Date": "={{ $now.format('MM-DD-YYYY') }}",
+            "PCR Internal ID": "={{ $json.CandidateId }}",
+            "Name": "={{ $json.name }}",
+            "First Name": "={{ $json.first_name }}",
+            "Last Name": "={{ $json.last_name }}",
+            "Title": "={{ $json.title }}",
+            "Company": "={{ $json.organization_name }}",
+            "Time at Company": "={{ $json.ai_analysis.company_1_start_date }}-{{ $json.ai_analysis.company_1_end_date }}",
+            "City": "={{ $json.city }}",
+            "State": "={{ $json.state }}",
+            "Work Email": "={{ $json.email }}",
+            "PCR Email": "={{ $json.pcr_email }}",
+            "PCR Home #": "={{ $json.pcr_home }}",
+            "PCR Mobile #": "={{ $json.pcr_mobile }}",
+            "LinkedIn URL": "={{ $json.linkedin_url }}",
+            "Headline": "={{ $json.headline }}",
+            "Degree Type": "={{ $json.ai_analysis.degree_type_latest }}",
+            "Grad Year": "={{ $json.ai_analysis.graduation_year_latest }}",
+            "Latest School": "={{ $json.ai_analysis.degree_school_latest }}",
+            "Certifications": "={{ $json.ai_analysis.licenses_and_certifications_csv }}",
+            "Sourced From": "LinkedIn",
+            "Company 1": "=Name: {{ $json.ai_analysis.company_1_name }}\nTitle: {{ $json.ai_analysis.company_1_title }}\nTenure: {{ $json.ai_analysis.company_1_start_date }}-{{ $json.ai_analysis.company_1_end_date }}\nKeywords: {{ $json.ai_analysis.company_1_specialties_csv }}",
+            "Company 2": "=Name: {{ $json.ai_analysis.company_2_name }}\nTitle: {{ $json.ai_analysis.company_2_title }}\nTenure: {{ $json.ai_analysis.company_2_start_date }}-{{ $json.ai_analysis.company_2_end_date }}\nKeywords: {{ $json.ai_analysis.company_2_specialties_csv }}",
+            "Company 3": "=Name: {{ $json.ai_analysis.company_3_name }}\nTitle: {{ $json.ai_analysis.company_3_title }}\nTenure: {{ $json.ai_analysis.company_3_start_date }}-{{ $json.ai_analysis.company_3_end_date }}\nKeywords: {{ $json.ai_analysis.company_3_specialties_csv }}",
+            "Specialties": "={{ $json.ai_analysis.company_1_specialties_csv }},{{ $json.ai_analysis.company_2_specialties_csv }},{{ $json.ai_analysis.company_3_specialties_csv }}",
+            "Final Score": "={{ $json.ai_analysis.final_score }}",
+            "Pass": "={{ $json.ai_analysis.pass }}",
+            "Education": "={{ $json.ai_analysis.education_ok }}",
+            "Min Experience": "={{ $json.ai_analysis.meets_min_experience }}",
+            "Needs Verification": "={{ $json.ai_analysis.needs_verification }}",
+            "Verification Reasons": "={{ $json.ai_analysis.verification_reasons_csv }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "add-to-sheets-fit-existing",
+      "name": "Add to Google Sheets (Existing)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1250, 500]
+    },
+    {
+      "parameters": {
+        "url": "https://hook.us2.make.com/xvnpq5eiu7k486slvj1vbk4kwrs52re9",
+        "sendBody": true,
+        "options": {
+          "bodyContentType": "raw",
+          "rawBody": "={\n  \"spreadsheet_ID\": \"{{ $json.google_sheet_id }}\",\n  \"sheet\": \"{{ $json.search_name }}\",\n  \"row_number\": \"\",\n  \"email\": \"{{ $json.email }}\",\n  \"PCR_email\": \"{{ $json.pcr_email }}\",\n  \"domain\": \"{{ $json.organization_domain }}\",\n  \"school\": \"{{ $json.ai_analysis.degree_school_latest }}\",\n  \"degree_type\": \"{{ $json.ai_analysis.degree_type_latest }}\",\n  \"grad_year\": \"{{ $json.ai_analysis.graduation_year_latest }}\",\n  \"licenses_and_certifications_csv\": \"{{ $json.ai_analysis.licenses_and_certifications_csv }}\",\n  \"company_1_name\": \"{{ $json.ai_analysis.company_1_name }}\",\n  \"company_1_specialties_csv\": \"{{ $json.ai_analysis.company_1_specialties_csv }}\",\n  \"company_2_name\": \"{{ $json.ai_analysis.company_2_name }}\",\n  \"company_2_specialties_csv\": \"{{ $json.ai_analysis.company_2_specialties_csv }}\",\n  \"company_3_name\": \"{{ $json.ai_analysis.company_3_name }}\",\n  \"company_3_specialties_csv\": \"{{ $json.ai_analysis.company_3_specialties_csv }}\",\n  \"pcr_candidate_id\": \"{{ $json.pcr_candidate_id }}\",\n  \"pcr_last_synced_at\": \"{{ $json.pcr_last_synced }}\",\n  \"pcr_session_id\": \"{{ $json.pcr_session_id }}\",\n  \"DataStore_id\": \"{{ $json.id }}\"\n}"
+        }
+      },
+      "id": "send-to-verify-fit-existing",
+      "name": "Send to Verify (Existing)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1450, 500]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Route by Pass Status & PCR Existence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Pass Status & PCR Existence": {
+      "main": [
+        [
+          {
+            "node": "Not A Fit",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fit and Not in PCR",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fit and In PCR",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Not A Fit": {
+      "main": [
+        [
+          {
+            "node": "Check if New Candidate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check if New Candidate": {
+      "main": [
+        [
+          {
+            "node": "Add Not Fit to PCRecruiter",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Not Fit in PCRecruiter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fit and Not in PCR": {
+      "main": [
+        [
+          {
+            "node": "Add Fit Candidate to PCRecruiter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add Fit Candidate to PCRecruiter": {
+      "main": [
+        [
+          {
+            "node": "Add to Rollup List (New)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add to Rollup List (New)": {
+      "main": [
+        [
+          {
+            "node": "Add to Google Sheets (New)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add to Google Sheets (New)": {
+      "main": [
+        [
+          {
+            "node": "Send to Verify (New)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fit and In PCR": {
+      "main": [
+        [
+          {
+            "node": "Update Fit Candidate in PCRecruiter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Fit Candidate in PCRecruiter": {
+      "main": [
+        [
+          {
+            "node": "Add to Rollup List (Existing)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add to Rollup List (Existing)": {
+      "main": [
+        [
+          {
+            "node": "Add to Google Sheets (Existing)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add to Google Sheets (Existing)": {
+      "main": [
+        [
+          {
+            "node": "Send to Verify (Existing)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {}
+}
