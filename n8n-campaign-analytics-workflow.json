@@ -1,0 +1,340 @@
+{
+  "name": "Instantly Campaign Analytics with Copy",
+  "nodes": [
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "API_KEY",
+              "value": "NGQ1MTJhMDQtNjliNy00MDMwLWE0MWMtMGQ3NmYyN2EyY2I5OnJ2aUVyQXdRUG9abg=="
+            },
+            {
+              "name": "campaign_id",
+              "value": "de9e3cad-9e6a-4af0-911a-a43553498efc"
+            },
+            {
+              "name": "campaign_name",
+              "value": "ConstHiring 1-50"
+            },
+            {
+              "name": "start_date",
+              "value": "={{ $now.minus({ days: 7 }).toFormat('MM-dd-yyyy') }}"
+            },
+            {
+              "name": "end_date",
+              "value": "={{ $now.toFormat('MM-dd-yyyy') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-variables",
+      "name": "Set API & Date Variables",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "method": "GET",
+        "url": "https://api.instantly.ai/api/v2/campaigns/analytics/steps",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "campaign_id",
+              "value": "={{ $json.campaign_id }}"
+            },
+            {
+              "name": "start_date",
+              "value": "={{ $json.start_date }}"
+            },
+            {
+              "name": "end_date",
+              "value": "={{ $json.end_date }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get-step-analytics",
+      "name": "Get Step & Variant Analytics",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 180],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "instantly-api-credentials",
+          "name": "Instantly API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "data",
+        "options": {}
+      },
+      "id": "split-step-analytics",
+      "name": "Split Step Analytics Array",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [680, 180]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1DN7BweGYYi-RfvZ9eRB7cQtb8JGDzGMZ_0E5_zvsdNo",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Campaign Analytics",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Date": "={{ $('Set API & Date Variables').item.json.end_date }}",
+            "Campaign Name": "={{ $('Set API & Date Variables').item.json.campaign_name }}",
+            "Campaign ID": "={{ $('Set API & Date Variables').item.json.campaign_id }}",
+            "Campaign Status": "1",
+            "Step": "={{ $json.step }}",
+            "Variant": "={{ $json.variant }}",
+            "Sent": "={{ $json.sent }}",
+            "Replies": "={{ $json.replies }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "add-analytics-to-sheet",
+      "name": "Add Analytics to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [900, 180],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-credentials",
+          "name": "Google Sheets Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "method": "GET",
+        "url": "https://api.instantly.ai/api/v2/campaigns",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "search",
+              "value": "={{ $json.campaign_name }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get-campaign-details",
+      "name": "Get Campaign Details",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 380],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "instantly-api-credentials",
+          "name": "Instantly API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract campaigns from response\nconst campaigns = $input.item.json.data?.items || [];\n\nif (campaigns.length === 0) {\n  return [];\n}\n\n// Get the first campaign (should match search)\nconst campaign = campaigns[0];\nconst sequence = campaign.sequences?.[0];\n\nif (!sequence || !sequence.steps) {\n  return [];\n}\n\n// Store sequence data for later use\nreturn [{ \n  json: {\n    campaign_id: campaign.id,\n    campaign_name: campaign.name,\n    sequence: sequence\n  }\n}];"
+      },
+      "id": "extract-sequence",
+      "name": "Extract Campaign Sequence",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 380]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1DN7BweGYYi-RfvZ9eRB7cQtb8JGDzGMZ_0E5_zvsdNo",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Campaign Analytics",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": []
+        },
+        "options": {
+          "returnAllMatches": true
+        }
+      },
+      "id": "read-sheet-rows",
+      "name": "Read Google Sheets Rows",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [460, 580],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-credentials",
+          "name": "Google Sheets Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// This code extracts the subject and body for each row based on step and variant\nconst sheetRow = $input.item.json;\nconst sequence = $('Extract Campaign Sequence').item.json.sequence;\n\nif (!sequence || !sequence.steps) {\n  return { json: sheetRow };\n}\n\n// Get step number (convert from string, 0-indexed)\nconst stepIndex = parseInt(sheetRow.Step);\nconst variantIndex = parseInt(sheetRow.Variant);\n\n// Get the step and variant\nconst step = sequence.steps[stepIndex];\nif (!step || !step.variants) {\n  return { json: sheetRow };\n}\n\nconst variant = step.variants[variantIndex];\nif (!variant) {\n  return { json: sheetRow };\n}\n\n// Extract subject and body\nconst subject = variant.subject || '';\nconst body = variant.body || '';\n\n// Convert HTML to plain text (basic conversion)\nconst plainTextBody = body\n  .replace(/<br\\s*\\/?>/gi, '\\n')\n  .replace(/<div[^>]*>/gi, '')\n  .replace(/<\\/div>/gi, '\\n')\n  .replace(/<[^>]+>/g, '')\n  .replace(/&nbsp;/g, ' ')\n  .replace(/&lt;/g, '<')\n  .replace(/&gt;/g, '>')\n  .replace(/&amp;/g, '&')\n  .trim();\n\nreturn {\n  json: {\n    ...sheetRow,\n    Subject: subject,\n    Body: plainTextBody,\n    rowNumber: $input.item.json.row_number\n  }\n};"
+      },
+      "id": "extract-copy",
+      "name": "Extract Subject & Body Copy",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 580]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1DN7BweGYYi-RfvZ9eRB7cQtb8JGDzGMZ_0E5_zvsdNo",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Campaign Analytics",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Subject": "={{ $json.Subject }}",
+            "Body": "={{ $json.Body }}"
+          },
+          "matchingColumns": [
+            "Step",
+            "Variant",
+            "Campaign ID"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "update-sheet-with-copy",
+      "name": "Update Sheet with Copy",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [900, 580],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-credentials",
+          "name": "Google Sheets Account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Set API & Date Variables": {
+      "main": [
+        [
+          {
+            "node": "Get Step & Variant Analytics",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get Campaign Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Step & Variant Analytics": {
+      "main": [
+        [
+          {
+            "node": "Split Step Analytics Array",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Step Analytics Array": {
+      "main": [
+        [
+          {
+            "node": "Add Analytics to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Campaign Details": {
+      "main": [
+        [
+          {
+            "node": "Extract Campaign Sequence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Campaign Sequence": {
+      "main": [
+        [
+          {
+            "node": "Read Google Sheets Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Google Sheets Rows": {
+      "main": [
+        [
+          {
+            "node": "Extract Subject & Body Copy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Subject & Body Copy": {
+      "main": [
+        [
+          {
+            "node": "Update Sheet with Copy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2025-11-24T00:00:00.000Z",
+  "versionId": "1"
+}

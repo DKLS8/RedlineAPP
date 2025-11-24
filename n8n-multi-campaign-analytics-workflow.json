@@ -1,0 +1,303 @@
+{
+  "name": "Instantly Multi-Campaign Analytics (Advanced)",
+  "nodes": [
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "API_KEY",
+              "value": "NGQ1MTJhMDQtNjliNy00MDMwLWE0MWMtMGQ3NmYyN2EyY2I5OnJ2aUVyQXdRUG9abg=="
+            },
+            {
+              "name": "start_date",
+              "value": "={{ $now.minus({ days: 7 }).toFormat('MM-dd-yyyy') }}"
+            },
+            {
+              "name": "end_date",
+              "value": "={{ $now.toFormat('MM-dd-yyyy') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-global-variables",
+      "name": "Set Global Variables",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [240, 300],
+      "notes": "Configure API key and date range for all campaigns"
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "method": "GET",
+        "url": "https://api.instantly.ai/api/v2/campaigns",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "status",
+              "value": "active"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "list-all-campaigns",
+      "name": "List All Active Campaigns",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "instantly-api-credentials",
+          "name": "Instantly API"
+        }
+      },
+      "notes": "Fetches all active campaigns from Instantly.ai"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "data.items",
+        "options": {}
+      },
+      "id": "split-campaigns",
+      "name": "Split Into Individual Campaigns",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [680, 300],
+      "notes": "Process each campaign separately"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract campaign data and create variables for this iteration\nconst campaign = $input.item.json;\nconst globalVars = $('Set Global Variables').item.json;\n\nreturn {\n  json: {\n    campaign_id: campaign.id,\n    campaign_name: campaign.name,\n    campaign_status: campaign.status,\n    start_date: globalVars.start_date,\n    end_date: globalVars.end_date,\n    sequence: campaign.sequences?.[0] || null,\n    has_sequences: Boolean(campaign.sequences && campaign.sequences.length > 0)\n  }\n};"
+      },
+      "id": "prepare-campaign-data",
+      "name": "Prepare Campaign Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "notes": "Extract and structure campaign information"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.has_sequences }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "has-sequences-check",
+      "name": "Has Sequences?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1120, 300],
+      "notes": "Only process campaigns with sequences"
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "method": "GET",
+        "url": "https://api.instantly.ai/api/v2/campaigns/analytics/steps",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "campaign_id",
+              "value": "={{ $json.campaign_id }}"
+            },
+            {
+              "name": "start_date",
+              "value": "={{ $json.start_date }}"
+            },
+            {
+              "name": "end_date",
+              "value": "={{ $json.end_date }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get-campaign-analytics",
+      "name": "Get Campaign Analytics",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 200],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "instantly-api-credentials",
+          "name": "Instantly API"
+        }
+      },
+      "notes": "Fetch analytics for this campaign"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Combine analytics data with campaign info and sequence data\nconst analyticsResponse = $input.item.json;\nconst campaignData = $('Prepare Campaign Data').item.json;\nconst analyticsArray = analyticsResponse.data || [];\n\n// If no analytics data, return empty array\nif (analyticsArray.length === 0) {\n  return [];\n}\n\n// Process each analytics item\nconst results = analyticsArray.map(analytics => {\n  const stepIndex = parseInt(analytics.step);\n  const variantIndex = parseInt(analytics.variant);\n  \n  // Get sequence data\n  let subject = '';\n  let body = '';\n  \n  if (campaignData.sequence && campaignData.sequence.steps) {\n    const step = campaignData.sequence.steps[stepIndex];\n    if (step && step.variants) {\n      const variant = step.variants[variantIndex];\n      if (variant) {\n        subject = variant.subject || '';\n        body = variant.body || '';\n      }\n    }\n  }\n  \n  // Convert HTML to plain text\n  const plainTextBody = body\n    .replace(/<br\\s*\\/?>/gi, '\\n')\n    .replace(/<div[^>]*>/gi, '')\n    .replace(/<\\/div>/gi, '\\n')\n    .replace(/<[^>]+>/g, '')\n    .replace(/&nbsp;/g, ' ')\n    .replace(/&lt;/g, '<')\n    .replace(/&gt;/g, '>')\n    .replace(/&amp;/g, '&')\n    .replace(/&quot;/g, '\"')\n    .replace(/&#39;/g, \"'\")\n    .trim();\n  \n  return {\n    date: campaignData.end_date,\n    campaign_name: campaignData.campaign_name,\n    campaign_id: campaignData.campaign_id,\n    campaign_status: campaignData.campaign_status,\n    step: analytics.step,\n    variant: analytics.variant,\n    sent: analytics.sent || 0,\n    opened: analytics.opened || 0,\n    unique_opened: analytics.unique_opened || 0,\n    replies: analytics.replies || 0,\n    unique_replies: analytics.unique_replies || 0,\n    clicks: analytics.clicks || 0,\n    unique_clicks: analytics.unique_clicks || 0,\n    subject: subject,\n    body: plainTextBody,\n    reply_rate: analytics.sent > 0 ? ((analytics.unique_replies / analytics.sent) * 100).toFixed(2) + '%' : '0%',\n    open_rate: analytics.sent > 0 ? ((analytics.unique_opened / analytics.sent) * 100).toFixed(2) + '%' : '0%'\n  };\n});\n\nreturn results.map(item => ({ json: item }));"
+      },
+      "id": "merge-analytics-with-copy",
+      "name": "Merge Analytics with Copy & Calculate Rates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 200],
+      "notes": "Combines all data and calculates conversion rates"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1DN7BweGYYi-RfvZ9eRB7cQtb8JGDzGMZ_0E5_zvsdNo",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Campaign Analytics",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Date": "={{ $json.date }}",
+            "Campaign Name": "={{ $json.campaign_name }}",
+            "Campaign ID": "={{ $json.campaign_id }}",
+            "Campaign Status": "={{ $json.campaign_status }}",
+            "Step": "={{ $json.step }}",
+            "Variant": "={{ $json.variant }}",
+            "Sent": "={{ $json.sent }}",
+            "Opened": "={{ $json.opened }}",
+            "Unique Opened": "={{ $json.unique_opened }}",
+            "Replies": "={{ $json.replies }}",
+            "Unique Replies": "={{ $json.unique_replies }}",
+            "Clicks": "={{ $json.clicks }}",
+            "Unique Clicks": "={{ $json.unique_clicks }}",
+            "Subject": "={{ $json.subject }}",
+            "Body": "={{ $json.body }}",
+            "Reply Rate": "={{ $json.reply_rate }}",
+            "Open Rate": "={{ $json.open_rate }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "write-to-google-sheets",
+      "name": "Write All Data to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [1780, 200],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-credentials",
+          "name": "Google Sheets Account"
+        }
+      },
+      "notes": "Appends complete data rows to the sheet"
+    },
+    {
+      "parameters": {
+        "content": "## Campaign Analytics Workflow\\n\\n**Status**: ✅ {{ $now.toFormat('yyyy-MM-dd HH:mm:ss') }}\\n\\n**Campaigns Processed**: {{ $('Split Into Individual Campaigns').all().length }}\\n\\n**Total Rows Added**: {{ $('Write All Data to Google Sheets').all().length }}\\n\\n---\\n\\n### Campaign Summary:\\n\\n{{ $('Write All Data to Google Sheets').all().map(item => `- **${item.json.campaign_name}**: ${item.json.sent} sent, ${item.json.replies} replies (${item.json.reply_rate})`).join('\\n') }}",
+        "height": 464,
+        "width": 567
+      },
+      "id": "workflow-summary",
+      "name": "Workflow Summary",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1960, 60]
+    }
+  ],
+  "connections": {
+    "Set Global Variables": {
+      "main": [
+        [
+          {
+            "node": "List All Active Campaigns",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List All Active Campaigns": {
+      "main": [
+        [
+          {
+            "node": "Split Into Individual Campaigns",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Into Individual Campaigns": {
+      "main": [
+        [
+          {
+            "node": "Prepare Campaign Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Campaign Data": {
+      "main": [
+        [
+          {
+            "node": "Has Sequences?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Sequences?": {
+      "main": [
+        [
+          {
+            "node": "Get Campaign Analytics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Campaign Analytics": {
+      "main": [
+        [
+          {
+            "node": "Merge Analytics with Copy & Calculate Rates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Analytics with Copy & Calculate Rates": {
+      "main": [
+        [
+          {
+            "node": "Write All Data to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": ["instantly", "analytics", "reporting"],
+  "triggerCount": 0,
+  "updatedAt": "2025-11-24T00:00:00.000Z",
+  "versionId": "2"
+}
