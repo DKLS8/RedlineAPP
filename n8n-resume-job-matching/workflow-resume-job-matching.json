@@ -1,0 +1,1184 @@
+{
+  "name": "Resume-to-Job Matching & Outreach System",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 6 * * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger - 6 AM Daily",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": "={{ $env.GOOGLE_SHEET_ID }}",
+        "sheetName": "Campaign Config",
+        "options": {
+          "range": "A2:R2"
+        }
+      },
+      "id": "read-campaign-config",
+      "name": "Read Campaign Config",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [450, 300],
+      "credentials": {
+        "googleSheetsApi": {
+          "id": "1",
+          "name": "Google Sheets API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": "={{ $env.GOOGLE_SHEET_ID }}",
+        "sheetName": "URLs",
+        "options": {}
+      },
+      "id": "read-urls",
+      "name": "Read LinkedIn URLs",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [650, 300],
+      "credentials": {
+        "googleSheetsApi": {
+          "id": "1",
+          "name": "Google Sheets API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": "={{ $json.resume_file_id }}"
+      },
+      "id": "download-resume",
+      "name": "Download Resume PDF",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [850, 300],
+      "credentials": {
+        "googleDriveApi": {
+          "id": "2",
+          "name": "Google Drive API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "text",
+        "options": {}
+      },
+      "id": "extract-text-from-pdf",
+      "name": "Extract Text from PDF",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "resource": "text",
+        "operation": "message",
+        "modelId": "gpt-4o",
+        "options": {
+          "temperature": 0.2,
+          "responseFormat": "json_object"
+        },
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are a resume parser. Extract structured data from resumes and return ONLY valid JSON with no additional text.\n\nExtract:\n- current_title: Most recent job title\n- all_titles: Array of all job titles held\n- total_years_experience: Calculate total years in accounting/finance roles\n- skills: Array of all technical and professional skills\n- certifications: Array of certifications (CPA, CFA, etc.)\n- education: Array of degrees with level and field\n- industries: Array of industries worked in\n- work_history: Array of {title, company, start_date, end_date, description}\n\nReturn format:\n{\n  \"current_title\": \"string\",\n  \"all_titles\": [\"string\"],\n  \"total_years_experience\": number,\n  \"skills\": [\"string\"],\n  \"certifications\": [\"string\"],\n  \"education\": [{\"level\": \"string\", \"field\": \"string\", \"institution\": \"string\"}],\n  \"industries\": [\"string\"],\n  \"work_history\": [{\"title\": \"string\", \"company\": \"string\", \"start_date\": \"string\", \"end_date\": \"string\", \"description\": \"string\"}]\n}"
+            },
+            {
+              "role": "user",
+              "content": "Parse this resume:\n\n{{ $json.text }}"
+            }
+          ]
+        }
+      },
+      "id": "parse-resume-openai",
+      "name": "Parse Resume with OpenAI",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.3,
+      "position": [1250, 300],
+      "credentials": {
+        "openAiApi": {
+          "id": "3",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Store resume data for later use\nconst resumeData = JSON.parse($input.item.json.choices[0].message.content);\nconst campaignConfig = $('Read Campaign Config').first().json;\n\nreturn {\n  json: {\n    resume: resumeData,\n    campaign: campaignConfig\n  }\n};"
+      },
+      "id": "store-resume-data",
+      "name": "Store Resume Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1450, 300]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "loop-urls",
+      "name": "Loop Over URLs",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [850, 500]
+    },
+    {
+      "parameters": {
+        "actorId": "={{ $env.APIFY_LINKEDIN_SCRAPER_ID }}",
+        "fields": {
+          "values": [
+            {
+              "name": "searchUrl",
+              "value": "={{ $json.url }}"
+            },
+            {
+              "name": "maxItems",
+              "value": 1000
+            },
+            {
+              "name": "scrapeJobDetails",
+              "value": true
+            }
+          ]
+        },
+        "options": {
+          "waitForFinish": true
+        }
+      },
+      "id": "scrape-linkedin-jobs",
+      "name": "Scrape LinkedIn Jobs (Apify)",
+      "type": "n8n-nodes-base.apify",
+      "typeVersion": 1,
+      "position": [1050, 500],
+      "credentials": {
+        "apifyApi": {
+          "id": "4",
+          "name": "Apify API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Transform Apify output to standard job format\nconst jobs = $input.all().map(item => {\n  const job = item.json;\n  return {\n    job_id: `linkedin_${job.jobId || job.id}`,\n    job_title: job.title,\n    company_name: job.companyName,\n    location: job.location,\n    job_url: job.jobUrl || job.url,\n    posted_date: job.postedDate,\n    scraped_date: new Date().toISOString(),\n    job_description: job.description,\n    raw_data: job\n  };\n});\n\nreturn jobs.map(job => ({ json: job }));"
+      },
+      "id": "transform-jobs",
+      "name": "Transform Job Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1250, 500]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "mergeByPosition",
+        "options": {}
+      },
+      "id": "merge-all-jobs",
+      "name": "Merge All Jobs",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2.1,
+      "position": [1450, 500]
+    },
+    {
+      "parameters": {
+        "resource": "text",
+        "operation": "message",
+        "modelId": "gpt-4o-mini",
+        "options": {
+          "temperature": 0.1,
+          "responseFormat": "json_object"
+        },
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are a job qualification expert. Analyze if a job posting is relevant for accounting/finance recruiting.\n\nReturn JSON:\n{\n  \"is_qualified\": boolean,\n  \"is_accounting_finance\": boolean,\n  \"has_valid_description\": boolean,\n  \"extracted_requirements\": {\n    \"years_experience\": number or null,\n    \"skills\": [\"string\"],\n    \"education\": \"string\" or null,\n    \"certifications\": [\"string\"]\n  },\n  \"rejection_reason\": \"string\" or null\n}\n\nReject if:\n- Not accounting/finance role\n- Job description is too short (<100 chars) or invalid\n- Spam/duplicate posting"
+            },
+            {
+              "role": "user",
+              "content": "Job Title: {{ $json.job_title }}\nCompany: {{ $json.company_name }}\nDescription: {{ $json.job_description }}\n\nIs this a qualified accounting/finance job posting?"
+            }
+          ]
+        }
+      },
+      "id": "qualify-job",
+      "name": "Qualify Job with AI",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.3,
+      "position": [1650, 500],
+      "credentials": {
+        "openAiApi": {
+          "id": "3",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse qualification result and merge with job data\nconst qualification = JSON.parse($json.choices[0].message.content);\nconst jobData = $('Transform Job Data').item.json;\n\nreturn {\n  json: {\n    ...jobData,\n    qualified: qualification.is_qualified,\n    qualification_details: qualification,\n    extracted_requirements: qualification.extracted_requirements,\n    rejection_reason: qualification.rejection_reason\n  }\n};"
+      },
+      "id": "merge-qualification",
+      "name": "Merge Qualification Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1850, 500]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.qualified }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "filter-qualified-jobs",
+      "name": "Filter: Only Qualified Jobs",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2050, 500]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": "={{ $env.GOOGLE_SHEET_ID }}",
+        "sheetName": "Jobs Master",
+        "options": {}
+      },
+      "id": "read-jobs-master",
+      "name": "Read Jobs Master (Dedup Check)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [2250, 400],
+      "credentials": {
+        "googleSheetsApi": {
+          "id": "1",
+          "name": "Google Sheets API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check if job already exists in Jobs Master\nconst currentJob = $input.first().json;\nconst existingJobs = $('Read Jobs Master (Dedup Check)').all().map(item => item.json);\n\nconst alreadyContacted = existingJobs.some(existing => \n  existing.job_id === currentJob.job_id && \n  existing.outreach_attempted === 'TRUE'\n);\n\nif (alreadyContacted) {\n  return {\n    json: {\n      ...currentJob,\n      skip_reason: 'Already contacted for this job',\n      should_skip: true\n    }\n  };\n}\n\nreturn {\n  json: {\n    ...currentJob,\n    should_skip: false\n  }\n};"
+      },
+      "id": "check-deduplication",
+      "name": "Check If Already Contacted",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2450, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.should_skip }}",
+              "value2": false
+            }
+          ]
+        }
+      },
+      "id": "filter-new-jobs",
+      "name": "Filter: New Jobs Only",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2650, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Calculate match score between resume and job\nconst job = $input.first().json;\nconst resume = $('Store Resume Data').first().json.resume;\nconst campaign = $('Store Resume Data').first().json.campaign;\n\n// Parse campaign requirements\nconst requiredTitles = campaign.required_titles.split(',').map(t => t.trim().toLowerCase());\nconst avoidTitles = campaign.avoid_titles.split(',').map(t => t.trim().toLowerCase());\nconst requiredSkills = campaign.required_skills.split(',').map(s => s.trim().toLowerCase());\nconst skillsMatchType = campaign.skills_match_type; // 'partial' or 'all'\nconst minYearsExp = parseInt(campaign.min_years_experience);\n\nconst jobTitle = job.job_title.toLowerCase();\nconst jobSkills = (job.extracted_requirements.skills || []).map(s => s.toLowerCase());\nconst jobYearsRequired = job.extracted_requirements.years_experience || 0;\nconst resumeSkills = resume.skills.map(s => s.toLowerCase());\n\nlet score = 0;\nlet breakdown = {};\n\n// 1. Title Match (30 points)\nif (avoidTitles.some(avoid => jobTitle.includes(avoid))) {\n  breakdown.title = { score: 0, reason: 'Avoid title match', matched: false };\n  score += 0;\n} else if (requiredTitles.some(required => jobTitle.includes(required))) {\n  breakdown.title = { score: 30, reason: 'Exact title match', matched: true };\n  score += 30;\n} else if (requiredTitles.some(required => \n  jobTitle.includes(required.replace('senior', '').replace('junior', '').trim())\n)) {\n  breakdown.title = { score: 25, reason: 'Close title variation', matched: true };\n  score += 25;\n} else {\n  breakdown.title = { score: 0, reason: 'No title match', matched: false };\n}\n\n// 2. Years of Experience (30 points)\nconst resumeYears = resume.total_years_experience;\nif (resumeYears >= minYearsExp && resumeYears >= jobYearsRequired) {\n  const yearsScore = Math.min(30, (resumeYears / Math.max(minYearsExp, jobYearsRequired, 1)) * 30);\n  breakdown.experience = { score: yearsScore, resume_years: resumeYears, required: jobYearsRequired };\n  score += yearsScore;\n} else {\n  breakdown.experience = { score: 0, resume_years: resumeYears, required: jobYearsRequired, reason: 'Insufficient experience' };\n}\n\n// 3. Education (30 points)\nconst hasRequiredEducation = resume.education.some(edu => \n  edu.field.toLowerCase().includes('accounting') || \n  edu.field.toLowerCase().includes('finance') ||\n  edu.level.toLowerCase().includes('bachelor') ||\n  edu.level.toLowerCase().includes('master')\n);\nif (hasRequiredEducation) {\n  breakdown.education = { score: 30, reason: 'Required education met' };\n  score += 30;\n} else {\n  breakdown.education = { score: 0, reason: 'Education requirement not met' };\n}\n\n// 4. Skills (7 points)\nconst matchedSkills = requiredSkills.filter(reqSkill => \n  resumeSkills.some(resSkill => resSkill.includes(reqSkill) || reqSkill.includes(resSkill))\n);\n\nif (skillsMatchType === 'all') {\n  const allSkillsMatched = requiredSkills.every(reqSkill => \n    resumeSkills.some(resSkill => resSkill.includes(reqSkill) || reqSkill.includes(resSkill))\n  );\n  breakdown.skills = { \n    score: allSkillsMatched ? 7 : 0, \n    matched: matchedSkills, \n    required: requiredSkills,\n    match_type: 'all'\n  };\n  score += allSkillsMatched ? 7 : 0;\n} else {\n  const skillScore = (matchedSkills.length / requiredSkills.length) * 7;\n  breakdown.skills = { \n    score: skillScore, \n    matched: matchedSkills, \n    required: requiredSkills,\n    match_type: 'partial'\n  };\n  score += skillScore;\n}\n\n// 5. Certifications (3 points)\nconst requiredCerts = (campaign.required_certifications || '').split(',').map(c => c.trim().toLowerCase()).filter(c => c);\nconst resumeCerts = resume.certifications.map(c => c.toLowerCase());\nconst matchedCerts = requiredCerts.filter(reqCert => \n  resumeCerts.some(resCert => resCert.includes(reqCert))\n);\n\nif (requiredCerts.length > 0) {\n  const certScore = (matchedCerts.length / requiredCerts.length) * 3;\n  breakdown.certifications = { \n    score: certScore, \n    matched: matchedCerts, \n    required: requiredCerts \n  };\n  score += certScore;\n} else {\n  breakdown.certifications = { score: 0, reason: 'No certifications required' };\n}\n\n// Classification\nlet classification = 'No Fit';\nif (score >= 75) classification = 'Hard Fit';\nelse if (score >= 50) classification = 'Soft Fit';\n\nreturn {\n  json: {\n    ...job,\n    match_score: Math.round(score),\n    classification: classification,\n    score_breakdown: breakdown,\n    resume_data: resume,\n    campaign_data: campaign\n  }\n};"
+      },
+      "id": "calculate-match-score",
+      "name": "Calculate Match Score",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2850, 400]
+    },
+    {
+      "parameters": {
+        "resource": "text",
+        "operation": "message",
+        "modelId": "gpt-4o-mini",
+        "options": {
+          "temperature": 0.3
+        },
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "Generate a concise match reasoning summary (2-3 sentences) explaining why this candidate is a good fit for this job based on the scoring breakdown."
+            },
+            {
+              "role": "user",
+              "content": "Job: {{ $json.job_title }} at {{ $json.company_name }}\nCandidate: {{ $json.resume_data.current_title }}, {{ $json.resume_data.total_years_experience }} years experience\n\nScore Breakdown:\n{{ JSON.stringify($json.score_breakdown, null, 2) }}\n\nFinal Score: {{ $json.match_score }}/100 ({{ $json.classification }})\n\nGenerate match reasoning:"
+            }
+          ]
+        }
+      },
+      "id": "generate-match-reasoning",
+      "name": "Generate Match Reasoning (AI)",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.3,
+      "position": [3050, 400],
+      "credentials": {
+        "openAiApi": {
+          "id": "3",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const reasoning = $json.choices[0].message.content;\nconst jobData = $('Calculate Match Score').first().json;\n\nreturn {\n  json: {\n    ...jobData,\n    match_reasoning: reasoning\n  }\n};"
+      },
+      "id": "merge-reasoning",
+      "name": "Merge Match Reasoning",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3250, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.classification }}",
+              "operation": "notEquals",
+              "value2": "No Fit"
+            }
+          ]
+        }
+      },
+      "id": "filter-fits",
+      "name": "Filter: Hard & Soft Fits Only",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [3450, 400]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "={{ $env.GOOGLE_SHEET_ID }}",
+        "sheetName": "Rejections",
+        "columns": {
+          "mappings": [
+            {
+              "column": "rejection_id",
+              "value": "={{ 'REJ_' + $now.format('YYYYMMDDHHmmss') + '_' + $json.job_id }}"
+            },
+            {
+              "column": "campaign_id",
+              "value": "={{ $json.campaign_data.campaign_id }}"
+            },
+            {
+              "column": "job_id",
+              "value": "={{ $json.job_id }}"
+            },
+            {
+              "column": "job_title",
+              "value": "={{ $json.job_title }}"
+            },
+            {
+              "column": "company_name",
+              "value": "={{ $json.company_name }}"
+            },
+            {
+              "column": "rejection_reason",
+              "value": "={{ $json.match_score }} score - {{ $json.classification }}"
+            },
+            {
+              "column": "rejection_stage",
+              "value": "scoring"
+            },
+            {
+              "column": "match_score",
+              "value": "={{ $json.match_score }}"
+            },
+            {
+              "column": "rejected_date",
+              "value": "={{ $now.format('YYYY-MM-DD') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "log-rejections",
+      "name": "Log Rejections to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [3450, 600],
+      "credentials": {
+        "googleSheetsApi": {
+          "id": "1",
+          "name": "Google Sheets API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://api.leadmagic.io/v1/enrich",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "leadMagicApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "company_name",
+              "value": "={{ $json.company_name }}"
+            },
+            {
+              "name": "role",
+              "value": "CFO,Controller,Finance Manager,Hiring Manager"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "find-decision-maker",
+      "name": "Find Decision Maker (LeadMagic)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3650, 300],
+      "credentials": {
+        "leadMagicApi": {
+          "id": "5",
+          "name": "LeadMagic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process LeadMagic response\nconst leadData = $json;\nconst jobData = $('Merge Match Reasoning').first().json;\n\nconst hasValidEmail = leadData.email && \n                     leadData.email_verification?.status === 'valid' &&\n                     leadData.email_verification?.is_catchall === false;\n\nreturn {\n  json: {\n    ...jobData,\n    decision_maker: {\n      name: leadData.name || 'Unknown',\n      title: leadData.title || 'Hiring Manager',\n      email: leadData.email || null,\n      linkedin_url: leadData.linkedin_url || null,\n      email_valid: hasValidEmail,\n      phone: leadData.phone || null\n    },\n    outreach_channel: hasValidEmail ? 'email' : 'linkedin'\n  }\n};"
+      },
+      "id": "process-lead-data",
+      "name": "Process Lead Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3850, 300]
+    },
+    {
+      "parameters": {
+        "resource": "text",
+        "operation": "message",
+        "modelId": "gpt-4o",
+        "options": {
+          "temperature": 0.7
+        },
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "Generate a personalized outreach message for recruiting. Format:\n\nSubject line (if email)\n\nMessage body highlighting:\n1. The specific job requirements they posted\n2. How the candidate matches those requirements (use specific data)\n3. Call to action (share resume, schedule call)\n\nTone: Professional, concise, value-focused\nLength: 150-200 words max\n\nReturn JSON:\n{\n  \"subject\": \"string\",\n  \"message\": \"string\",\n  \"match_highlights\": [\"string\"]\n}"
+            },
+            {
+              "role": "user",
+              "content": "Decision Maker: {{ $json.decision_maker.name }} ({{ $json.decision_maker.title }})\nCompany: {{ $json.company_name }}\nJob Title: {{ $json.job_title }}\n\nJob Requirements:\n{{ JSON.stringify($json.extracted_requirements, null, 2) }}\n\nCandidate Profile:\nTitle: {{ $json.resume_data.current_title }}\nExperience: {{ $json.resume_data.total_years_experience }} years\nSkills: {{ $json.resume_data.skills.slice(0, 10).join(', ') }}\nCertifications: {{ $json.resume_data.certifications.join(', ') }}\nEducation: {{ $json.resume_data.education[0].level }} in {{ $json.resume_data.education[0].field }}\n\nMatch Score: {{ $json.match_score }}/100 ({{ $json.classification }})\nMatch Reasoning: {{ $json.match_reasoning }}\n\nGenerate personalized outreach:"
+            }
+          ]
+        }
+      },
+      "id": "generate-outreach-message",
+      "name": "Generate Outreach Message (AI)",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.3,
+      "position": [4050, 300],
+      "credentials": {
+        "openAiApi": {
+          "id": "3",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const outreachData = JSON.parse($json.choices[0].message.content);\nconst jobData = $('Process Lead Data').first().json;\n\nreturn {\n  json: {\n    ...jobData,\n    outreach: outreachData\n  }\n};"
+      },
+      "id": "merge-outreach-message",
+      "name": "Merge Outreach Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [4250, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.outreach_channel }}",
+              "value2": "email"
+            }
+          ]
+        }
+      },
+      "id": "route-outreach-channel",
+      "name": "Route: Email or LinkedIn?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [4450, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://api.instantly.ai/api/v1/lead/add",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "instantlyApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"api_key\": \"{{ $env.INSTANTLY_API_KEY }}\",\n  \"campaign_id\": \"{{ $env.INSTANTLY_CAMPAIGN_ID }}\",\n  \"email\": \"{{ $json.decision_maker.email }}\",\n  \"first_name\": \"{{ $json.decision_maker.name.split(' ')[0] }}\",\n  \"last_name\": \"{{ $json.decision_maker.name.split(' ').slice(1).join(' ') }}\",\n  \"company_name\": \"{{ $json.company_name }}\",\n  \"personalization\": {\n    \"job_title\": \"{{ $json.job_title }}\",\n    \"match_score\": \"{{ $json.match_score }}\",\n    \"subject\": \"{{ $json.outreach.subject }}\",\n    \"message\": \"{{ $json.outreach.message }}\"\n  }\n}",
+        "options": {}
+      },
+      "id": "send-email-instantly",
+      "name": "Send Email via Instantly.ai",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [4650, 200],
+      "credentials": {
+        "instantlyApi": {
+          "id": "6",
+          "name": "Instantly.ai API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://api.heyreach.io/api/v1/campaigns/add-lead",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "heyreachApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"api_key\": \"{{ $env.HEYREACH_API_KEY }}\",\n  \"campaign_id\": \"{{ $env.HEYREACH_CAMPAIGN_ID }}\",\n  \"linkedin_url\": \"{{ $json.decision_maker.linkedin_url }}\",\n  \"first_name\": \"{{ $json.decision_maker.name.split(' ')[0] }}\",\n  \"last_name\": \"{{ $json.decision_maker.name.split(' ').slice(1).join(' ') }}\",\n  \"company\": \"{{ $json.company_name }}\",\n  \"message_variables\": {\n    \"job_title\": \"{{ $json.job_title }}\",\n    \"custom_message\": \"{{ $json.outreach.message }}\"\n  }\n}",
+        "options": {}
+      },
+      "id": "send-linkedin-heyreach",
+      "name": "Send LinkedIn via HeyReach",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [4650, 400],
+      "credentials": {
+        "heyreachApi": {
+          "id": "7",
+          "name": "HeyReach API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "={{ $env.GOOGLE_SHEET_ID }}",
+        "sheetName": "Jobs Master",
+        "columns": {
+          "mappings": [
+            {
+              "column": "job_id",
+              "value": "={{ $json.job_id }}"
+            },
+            {
+              "column": "job_title",
+              "value": "={{ $json.job_title }}"
+            },
+            {
+              "column": "company_name",
+              "value": "={{ $json.company_name }}"
+            },
+            {
+              "column": "location",
+              "value": "={{ $json.location }}"
+            },
+            {
+              "column": "job_url",
+              "value": "={{ $json.job_url }}"
+            },
+            {
+              "column": "posted_date",
+              "value": "={{ $json.posted_date }}"
+            },
+            {
+              "column": "scraped_date",
+              "value": "={{ $json.scraped_date }}"
+            },
+            {
+              "column": "job_description",
+              "value": "={{ $json.job_description }}"
+            },
+            {
+              "column": "required_skills_extracted",
+              "value": "={{ $json.extracted_requirements.skills.join(', ') }}"
+            },
+            {
+              "column": "years_experience_required",
+              "value": "={{ $json.extracted_requirements.years_experience }}"
+            },
+            {
+              "column": "education_required",
+              "value": "={{ $json.extracted_requirements.education }}"
+            },
+            {
+              "column": "qualified",
+              "value": "={{ $json.qualified }}"
+            },
+            {
+              "column": "match_score",
+              "value": "={{ $json.match_score }}"
+            },
+            {
+              "column": "classification",
+              "value": "={{ $json.classification }}"
+            },
+            {
+              "column": "score_breakdown",
+              "value": "={{ JSON.stringify($json.score_breakdown) }}"
+            },
+            {
+              "column": "decision_maker_found",
+              "value": "={{ $json.decision_maker.name !== 'Unknown' }}"
+            },
+            {
+              "column": "outreach_attempted",
+              "value": "TRUE"
+            },
+            {
+              "column": "outreach_date",
+              "value": "={{ $now.format('YYYY-MM-DD') }}"
+            },
+            {
+              "column": "outreach_channel",
+              "value": "={{ $json.outreach_channel }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "update-jobs-master",
+      "name": "Update Jobs Master",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [4850, 300],
+      "credentials": {
+        "googleSheetsApi": {
+          "id": "1",
+          "name": "Google Sheets API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "={{ $env.GOOGLE_SHEET_ID }}",
+        "sheetName": "Outreach Log",
+        "columns": {
+          "mappings": [
+            {
+              "column": "outreach_id",
+              "value": "={{ 'OUT_' + $now.format('YYYYMMDDHHmmss') + '_' + $json.job_id }}"
+            },
+            {
+              "column": "campaign_id",
+              "value": "={{ $json.campaign_data.campaign_id }}"
+            },
+            {
+              "column": "job_id",
+              "value": "={{ $json.job_id }}"
+            },
+            {
+              "column": "job_title",
+              "value": "={{ $json.job_title }}"
+            },
+            {
+              "column": "company_name",
+              "value": "={{ $json.company_name }}"
+            },
+            {
+              "column": "decision_maker_name",
+              "value": "={{ $json.decision_maker.name }}"
+            },
+            {
+              "column": "decision_maker_title",
+              "value": "={{ $json.decision_maker.title }}"
+            },
+            {
+              "column": "decision_maker_email",
+              "value": "={{ $json.decision_maker.email }}"
+            },
+            {
+              "column": "linkedin_url",
+              "value": "={{ $json.decision_maker.linkedin_url }}"
+            },
+            {
+              "column": "outreach_channel",
+              "value": "={{ $json.outreach_channel }}"
+            },
+            {
+              "column": "outreach_message",
+              "value": "={{ $json.outreach.message }}"
+            },
+            {
+              "column": "match_score",
+              "value": "={{ $json.match_score }}"
+            },
+            {
+              "column": "classification",
+              "value": "={{ $json.classification }}"
+            },
+            {
+              "column": "match_highlights",
+              "value": "={{ $json.outreach.match_highlights.join('; ') }}"
+            },
+            {
+              "column": "sent_date",
+              "value": "={{ $now.format('YYYY-MM-DD HH:mm:ss') }}"
+            },
+            {
+              "column": "status",
+              "value": "sent"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "log-outreach",
+      "name": "Log Outreach",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [5050, 300],
+      "credentials": {
+        "googleSheetsApi": {
+          "id": "1",
+          "name": "Google Sheets API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate all results for summary\nconst allJobs = $('Transform Job Data').all();\nconst qualified = $('Filter: Only Qualified Jobs').all();\nconst newJobs = $('Filter: New Jobs Only').all();\nconst hardFits = newJobs.filter(j => j.json.classification === 'Hard Fit');\nconst softFits = newJobs.filter(j => j.json.classification === 'Soft Fit');\nconst outreachSent = $('Log Outreach').all();\nconst emailsSent = outreachSent.filter(o => o.json.outreach_channel === 'email');\nconst linkedinSent = outreachSent.filter(o => o.json.outreach_channel === 'linkedin');\nconst rejections = $('Log Rejections to Sheet').all();\n\nconst summary = {\n  execution_date: new Date().toISOString(),\n  total_jobs_scraped: allJobs.length,\n  qualified_jobs: qualified.length,\n  new_jobs: newJobs.length,\n  hard_fits: hardFits.length,\n  soft_fits: softFits.length,\n  rejections: rejections.length,\n  outreach_sent: outreachSent.length,\n  emails_sent: emailsSent.length,\n  linkedin_sent: linkedinSent.length,\n  top_matches: outreachSent.slice(0, 5).map(o => ({\n    company: o.json.company_name,\n    title: o.json.job_title,\n    score: o.json.match_score,\n    classification: o.json.classification\n  }))\n};\n\nreturn { json: summary };"
+      },
+      "id": "prepare-summary",
+      "name": "Prepare Summary Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [5250, 300]
+    },
+    {
+      "parameters": {
+        "channel": "={{ $env.SLACK_CHANNEL }}",
+        "text": "=🎯 *Resume-to-Job Matching Summary*\n\n*Campaign:* {{ $('Read Campaign Config').first().json.campaign_name }}\n*Date:* {{ $json.execution_date }}\n\n*Jobs Processed:*\n• Total Scraped: {{ $json.total_jobs_scraped }}\n• Qualified: {{ $json.qualified_jobs }}\n• New Jobs: {{ $json.new_jobs }}\n\n*Match Classification:*\n• 🔥 Hard Fits: {{ $json.hard_fits }}\n• ✅ Soft Fits: {{ $json.soft_fits }}\n• ❌ Rejections: {{ $json.rejections }}\n\n*Outreach Sent:*\n• Total: {{ $json.outreach_sent }}\n• 📧 Emails: {{ $json.emails_sent }}\n• 💼 LinkedIn: {{ $json.linkedin_sent }}\n\n*Top 5 Matches:*\n{{ $json.top_matches.map(m => `• ${m.company} - ${m.title} (${m.score}/100 - ${m.classification})`).join('\\n') }}\n\n✅ Workflow completed successfully",
+        "otherOptions": {}
+      },
+      "id": "send-slack-notification",
+      "name": "Send Slack Notification",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [5450, 250],
+      "credentials": {
+        "slackApi": {
+          "id": "8",
+          "name": "Slack API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.NOTIFICATION_EMAIL_FROM }}",
+        "toEmail": "={{ $env.NOTIFICATION_EMAIL_TO }}",
+        "subject": "=Resume-to-Job Matching Complete: {{ $('Read Campaign Config').first().json.campaign_name }}",
+        "emailType": "html",
+        "message": "=<h2>Resume-to-Job Matching Summary</h2>\n\n<p><strong>Campaign:</strong> {{ $('Read Campaign Config').first().json.campaign_name }}<br>\n<strong>Date:</strong> {{ $json.execution_date }}</p>\n\n<h3>Jobs Processed</h3>\n<ul>\n  <li>Total Scraped: {{ $json.total_jobs_scraped }}</li>\n  <li>Qualified: {{ $json.qualified_jobs }}</li>\n  <li>New Jobs: {{ $json.new_jobs }}</li>\n</ul>\n\n<h3>Match Classification</h3>\n<ul>\n  <li>🔥 Hard Fits: {{ $json.hard_fits }}</li>\n  <li>✅ Soft Fits: {{ $json.soft_fits }}</li>\n  <li>❌ Rejections: {{ $json.rejections }}</li>\n</ul>\n\n<h3>Outreach Sent</h3>\n<ul>\n  <li>Total: {{ $json.outreach_sent }}</li>\n  <li>📧 Emails: {{ $json.emails_sent }}</li>\n  <li>💼 LinkedIn: {{ $json.linkedin_sent }}</li>\n</ul>\n\n<h3>Top 5 Matches</h3>\n<ul>\n{{ $json.top_matches.map(m => `  <li>${m.company} - ${m.title} (${m.score}/100 - ${m.classification})</li>`).join('\\n') }}\n</ul>\n\n<p>✅ <strong>Workflow completed successfully</strong></p>\n\n<p><a href=\"https://docs.google.com/spreadsheets/d/{{ $env.GOOGLE_SHEET_ID }}\">View Full Results in Google Sheets</a></p>",
+        "options": {}
+      },
+      "id": "send-email-notification",
+      "name": "Send Email Notification",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [5450, 350],
+      "credentials": {
+        "smtp": {
+          "id": "9",
+          "name": "SMTP"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger - 6 AM Daily": {
+      "main": [
+        [
+          {
+            "node": "Read Campaign Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Campaign Config": {
+      "main": [
+        [
+          {
+            "node": "Read LinkedIn URLs",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Download Resume PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read LinkedIn URLs": {
+      "main": [
+        [
+          {
+            "node": "Loop Over URLs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Resume PDF": {
+      "main": [
+        [
+          {
+            "node": "Extract Text from PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Text from PDF": {
+      "main": [
+        [
+          {
+            "node": "Parse Resume with OpenAI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Resume with OpenAI": {
+      "main": [
+        [
+          {
+            "node": "Store Resume Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over URLs": {
+      "main": [
+        [
+          {
+            "node": "Scrape LinkedIn Jobs (Apify)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scrape LinkedIn Jobs (Apify)": {
+      "main": [
+        [
+          {
+            "node": "Transform Job Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform Job Data": {
+      "main": [
+        [
+          {
+            "node": "Loop Over URLs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge All Jobs": {
+      "main": [
+        [
+          {
+            "node": "Qualify Job with AI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qualify Job with AI": {
+      "main": [
+        [
+          {
+            "node": "Merge Qualification Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Qualification Data": {
+      "main": [
+        [
+          {
+            "node": "Filter: Only Qualified Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter: Only Qualified Jobs": {
+      "main": [
+        [
+          {
+            "node": "Read Jobs Master (Dedup Check)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Jobs Master (Dedup Check)": {
+      "main": [
+        [
+          {
+            "node": "Check If Already Contacted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check If Already Contacted": {
+      "main": [
+        [
+          {
+            "node": "Filter: New Jobs Only",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter: New Jobs Only": {
+      "main": [
+        [
+          {
+            "node": "Calculate Match Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Match Score": {
+      "main": [
+        [
+          {
+            "node": "Generate Match Reasoning (AI)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Match Reasoning (AI)": {
+      "main": [
+        [
+          {
+            "node": "Merge Match Reasoning",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Match Reasoning": {
+      "main": [
+        [
+          {
+            "node": "Filter: Hard & Soft Fits Only",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter: Hard & Soft Fits Only": {
+      "main": [
+        [
+          {
+            "node": "Find Decision Maker (LeadMagic)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Rejections to Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Decision Maker (LeadMagic)": {
+      "main": [
+        [
+          {
+            "node": "Process Lead Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Lead Data": {
+      "main": [
+        [
+          {
+            "node": "Generate Outreach Message (AI)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Outreach Message (AI)": {
+      "main": [
+        [
+          {
+            "node": "Merge Outreach Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Outreach Message": {
+      "main": [
+        [
+          {
+            "node": "Route: Email or LinkedIn?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route: Email or LinkedIn?": {
+      "main": [
+        [
+          {
+            "node": "Send Email via Instantly.ai",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send LinkedIn via HeyReach",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Email via Instantly.ai": {
+      "main": [
+        [
+          {
+            "node": "Update Jobs Master",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send LinkedIn via HeyReach": {
+      "main": [
+        [
+          {
+            "node": "Update Jobs Master",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Jobs Master": {
+      "main": [
+        [
+          {
+            "node": "Log Outreach",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Outreach": {
+      "main": [
+        [
+          {
+            "node": "Prepare Summary Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Summary Report": {
+      "main": [
+        [
+          {
+            "node": "Send Slack Notification",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Email Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2026-01-22T00:00:00.000Z",
+  "versionId": "1"
+}
