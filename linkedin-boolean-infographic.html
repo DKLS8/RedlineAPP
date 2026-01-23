@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LinkedIn Boolean Search - Redline Automations</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #f5f5f5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .infographic {
+            width: 1080px;
+            height: 1080px;
+            background: white;
+            border-radius: 0;
+            padding: 60px;
+            position: relative;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+        }
+
+        .brand {
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: 1.5px;
+            color: #DC143C;
+            text-transform: uppercase;
+            margin-bottom: 50px;
+        }
+
+        .main-title {
+            font-size: 56px;
+            font-weight: 800;
+            color: #1a1a1a;
+            text-align: center;
+            line-height: 1.2;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            font-size: 24px;
+            font-weight: 500;
+            color: #666;
+            text-align: center;
+            margin-bottom: 60px;
+        }
+
+        .divider {
+            width: 80px;
+            height: 4px;
+            background: #DC143C;
+            margin: 0 auto 60px;
+            border-radius: 2px;
+        }
+
+        .content-section {
+            margin-bottom: 40px;
+        }
+
+        .boolean-card {
+            background: #ffffff;
+            border: 2px solid #DC143C;
+            border-radius: 20px;
+            padding: 30px 40px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 2px 8px rgba(220, 20, 60, 0.1);
+            transition: all 0.3s ease;
+        }
+
+        .boolean-card:hover {
+            box-shadow: 0 4px 16px rgba(220, 20, 60, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .card-left {
+            display: flex;
+            align-items: center;
+            gap: 30px;
+        }
+
+        .operator-icon {
+            width: 70px;
+            height: 70px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 36px;
+            font-weight: 700;
+            color: white;
+            flex-shrink: 0;
+        }
+
+        .quotes-icon {
+            background: #DC143C;
+        }
+
+        .or-icon {
+            background: #333333;
+        }
+
+        .not-icon {
+            background: #555555;
+        }
+
+        .card-content h3 {
+            font-size: 28px;
+            font-weight: 700;
+            color: #1a1a1a;
+            margin-bottom: 8px;
+        }
+
+        .card-content p {
+            font-size: 16px;
+            font-weight: 400;
+            color: #666;
+            line-height: 1.5;
+        }
+
+        .card-icon {
+            font-size: 40px;
+            color: #DC143C;
+            opacity: 0.3;
+        }
+
+        .example-section {
+            background: linear-gradient(135deg, #ffffff 0%, #fff5f5 100%);
+            border: 3px solid #DC143C;
+            border-radius: 24px;
+            padding: 40px;
+            margin-top: 50px;
+            box-shadow: 0 8px 24px rgba(220, 20, 60, 0.15);
+        }
+
+        .example-label {
+            font-size: 14px;
+            font-weight: 600;
+            color: #999;
+            text-transform: uppercase;
+            letter-spacing: 1.2px;
+            margin-bottom: 15px;
+        }
+
+        .example-text {
+            font-size: 32px;
+            font-weight: 700;
+            color: #1a1a1a;
+            text-align: center;
+            line-height: 1.4;
+            font-family: 'Courier New', monospace;
+        }
+
+        .example-text .keyword {
+            color: #DC143C;
+        }
+
+        @media print {
+            body {
+                background: white;
+            }
+            .infographic {
+                box-shadow: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="infographic">
+        <div class="brand">REDLINE AUTOMATIONS</div>
+
+        <h1 class="main-title">LinkedIn Sales Navigator<br>Boolean Search</h1>
+        <p class="subtitle">(for Recruiters)</p>
+
+        <div class="divider"></div>
+
+        <div class="content-section">
+            <div class="boolean-card">
+                <div class="card-left">
+                    <div class="operator-icon quotes-icon">" "</div>
+                    <div class="card-content">
+                        <h3>Quotation Marks</h3>
+                        <p>Exact job title match</p>
+                    </div>
+                </div>
+                <div class="card-icon">"</div>
+            </div>
+
+            <div class="boolean-card">
+                <div class="card-left">
+                    <div class="operator-icon or-icon">OR</div>
+                    <div class="card-content">
+                        <h3>OR Operator</h3>
+                        <p>Include title variations & abbreviations</p>
+                    </div>
+                </div>
+                <div class="card-icon">+</div>
+            </div>
+
+            <div class="boolean-card">
+                <div class="card-left">
+                    <div class="operator-icon not-icon">NOT</div>
+                    <div class="card-content">
+                        <h3>NOT Operator</h3>
+                        <p>Exclude assistants & non-decision roles</p>
+                    </div>
+                </div>
+                <div class="card-icon">−</div>
+            </div>
+        </div>
+
+        <div class="example-section">
+            <div class="example-label">Example Boolean Search</div>
+            <div class="example-text">
+                <span class="keyword">"</span>Chief Financial Officer<span class="keyword">"</span>
+                <span class="keyword">OR</span>
+                CFO
+                <span class="keyword">NOT</span>
+                Assistant
+            </div>
+        </div>
+    </div>
+</body>
+</html>
